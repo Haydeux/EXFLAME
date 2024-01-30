@@ -1,2 +1,2 @@
 # FLAME
-All the code used in the FLAME project to attempt to deal with kiwifruit motion in orchards in autonomuous kiwifruit devices
+From the existing work on the FLAME project. Has now become the EXFLAME project.
