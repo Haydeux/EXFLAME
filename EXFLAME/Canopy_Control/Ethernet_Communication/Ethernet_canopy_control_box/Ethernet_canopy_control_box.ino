@@ -1,22 +1,31 @@
-// USER INSTRUCTIONS
-// This code is used to control the frequency and phase of each disturbance generator
-// This program is intended to communicate with Ethernet_canopy_control_GUI.py but can also be run independently
+/* Title: 		Canopy Control Box (Ethernet Communication)
+ * Author(s): 	Hayden Moxsom, (Credit: Jackson Whitwell's Serial Communication version)
+ * Modified: 	31/01/2024
+ * Description:	Arduino code which controls two motors based on messages sent through ethernet. This code is intended
+ * 				to be uploaded onto the Mduino, inside the canopy control box. Some options can be adjusted before 
+ * 				uploading (see SETUP OPTIONS on line 39).
+ */
 
-// To upload this code onto the control box ensure the board is set to 'M-Duino family' (industrial shields) and the model is set to 'M-Duino 58+'
-// Some options can be changed before uploading. See the SETUP OPTIONS section below.
-
-// To control the canopy using only this program, connect to the arduino using telnet by running the command "telnet 192.168.1.102 1050".
-// To connect, press enter. Once connected, the following commands can be used to control the canopy:
-// Disconnect 						'dc' 	or 	'disconnect'	
-// Stop motors                      'x'		or 	'stop'
-// Set motor 1 frequency N (Hz)     'm1 N' (where N is any number 0.0 <= N <= 2.0)
-// Set motor 2 frequency N (Hz)     'm2 N' (where N is any number 0.0 <= N <= 2.0)
-// Set both motors frequency N (Hz) 'm3 N' (where N is any number 0.0 <= N <= 2.0)
-// Set Phase Offset N (Degrees)     'po N' (where N is any number 0.0 <= N <= 360.0)
-// Toggle print                     'tp'	or 	'toggle print'
-// Zero cranks                      'zc'	or 	'zero cranks'
-// Print once 						'p' 	or 	'print'
-// Simulate communication from gui  'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]'
+/*///////////// USER INSTRUCTIONS //////////////////////////////////////
+ * This code is used to control the frequency and phase of each disturbance generator
+ * This program is intended to communicate with Ethernet_canopy_control_GUI.py but can also be run independently
+ *
+ * To upload this code onto the control box ensure the board is set to 'M-Duino family' (industrial shields) and the model is set to 'M-Duino 58+'
+ * Some options can be changed before uploading. See the SETUP OPTIONS section below.
+ *
+ * To control the canopy using only this program, connect to the arduino using telnet by running the command "telnet 192.168.1.102 1050".
+ * To connect, press enter. Once connected, the following commands can be used to control the canopy:
+ * Disconnect 						'dc' 	or 	'disconnect'	
+ * Stop motors                      'x'		or 	'stop'
+ * Set motor 1 frequency N (Hz)     'm1 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set motor 2 frequency N (Hz)     'm2 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set both motors frequency N (Hz) 'm3 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set Phase Offset N (Degrees)     'po N' (where N is any number 0.0 <= N <= 360.0)
+ * Toggle print                     'tp'	or 	'toggle print'
+ * Zero cranks                      'zc'	or 	'zero cranks'
+ * Print once 						'p' 	or 	'print'
+ * Simulate communication from gui  'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]' 
+/*//////////////////////////////////////////////////////////////////////
 
 
 
@@ -28,6 +37,8 @@
 
 
 //////////////////// SETUP OPTIONS /////////////////////////////////////
+/* Some configurable options that can be changed before uploading */
+
 /* MAC, IP, and PORT number for setting up ethernet communication */
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED}; 	// MAC address of arduino to use (must be unique on network)
 byte ip[] = {192, 168, 1, 102};					   	// IP address that the arduino will use (format: 192.168.1.XXX)
@@ -79,8 +90,8 @@ EthernetServer server(1050);					 	// Port to create the communication server on
 
 /////////////////// ENCODER INTERRUPT SERVICE ROUTINES /////////////////
 /* Stores the tick and rev count of the encoders */
-volatile long enc1_count = 0, enc2_count = 0; // For tracking encoder 1 and 2's pulse count (channels A and B)
-volatile long enc1_revs = 0, enc2_revs = 0; // For tracking encoder 1 and 2's index channel (number of revs)
+volatile long enc1_count = 0, enc2_count = 0; 	// For tracking encoder 1 and 2's pulse count (channels A and B)
+volatile long enc1_revs = 0, enc2_revs = 0; 	// For tracking encoder 1 and 2's index channel (number of revs)
 
 /* For handling encoder 1's A channel interrupts */
 void isr_enc1A() {
@@ -124,20 +135,72 @@ void isr_enc2X() {
 
 
 ////////////////////// PROTOTYPES //////////////////////////////////////
-/* setup */
+/* Setups the encoder pins and attaches interrupts */
 void setup_encoders();
 
-/* calculate */
-void calc_motor_freq(float* motor_freq, long enc_count, long* enc_prev_count, unsigned long* enc_prev_time);
+/* Calculates the motor frequency, based on time elapsed between ticks  
+ *
+ * Parameters: 
+ *  - float& motor_freq 			--> calculated frequency (Note: can return unchaged if there have been no ticks and timeout period is not met). On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - long enc_count  				--> the number of ticks of the encoder 
+ *  - long& enc_prev_count 			--> the number of previous encoder ticks. Gets updated to match enc_count. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - unsigned lon& enc_prev_time 	--> the previous time (in microseconds) this function was called for the encoder. Gets updated to the current time. On first call pass a variable intialised to micros(), then pass the same variable on repeated calls
+ * 
+ * Returns:
+ *  - void 
+ * */
+void calc_motor_freq(float& motor_freq, long enc_count, long& enc_prev_count, unsigned long& enc_prev_time);
 
-/* PID */
-int calculate_PID(int motor, float target_freq, float actual_freq, float* cum_error, float* prev_error, unsigned long* prev_time);
+/* Calculates the errors and applys PID values to calculate the motor input value   
+ *
+ * Parameters: 
+ *  - int motor 				--> number representing the motor (1 = motor 1, 2 = motor 2), this determines which PID values are used
+ *  - float target_freq  		--> the target frequency for the motor to run at 
+ *  - float actual_freq 		--> the measured frequency that the motor is currently running at 
+ *  - float& cum_error 			--> the cumulative error, for the motor. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - float& prev_error 		--> the previous error, for the motor. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - unsigned long& prev_time 	--> the previous time (in microseconds) this function was called for the motor. Gets updated to be the current time. On first call pass a variable intialised to micros(), then pass the same variable on repeated calls
+ * 
+ * Returns:
+ *  - int 	--> analog input value for the motor, to produce the needed speed, to get to the target frequency
+ * */
+int calculate_PID(int motor, float target_freq, float actual_freq, float& cum_error, float& prev_error, unsigned long& prev_time);
 
-/* msg */
-bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, float* motor_1_target_freq, float* motor_2_target_freq, float* target_phase_offset, int* print_flag, bool* new_input_flag);
+/* Takes a given string, determines which command it corresponds to, and executes that command. See USER INSTRUCTIONS at top for a list of the available commands and what they do.  
+ * 
+ * Parameters: 
+ *  - const EthernetClient& client 	--> the connected ethernet communication client 
+ *  - String& msg_str  				--> the string message to process 
+ *  - bool& power_on 				--> a variable for if the power is on or off
+ *  - float& motor_1_target_freq 	--> a variable to store the user inputted target frequency
+ *  - float& motor_2_target_freq 	--> a variable to store the user inputted target frequency
+ *  - float& target_phase_offset 	--> a variable to store the user inputted target offset
+ *  - int& print_flag 				--> a variable to indicate the selected print output type
+ *  - bool& new_input_flag 			--> a variable to indicate if there was new input targets 
+ * 
+ * Returns:
+ *  - bool 			--> True indicates to disconnect. False indicates to continue running.
+ * */
+bool handle_msg(const EthernetClient& client, String& msg_str, bool& power_on, float& motor_1_target_freq, float& motor_2_target_freq, float& target_phase_offset, int& print_flag, bool& new_input_flag);
 
-/* print */
-void print_outputs(const EthernetClient& client, int print_flag, float m1_targ_freq, float m1_freq, long enc1_safe_count, float m2_targ_freq, float m2_adj_freq, float m2_freq, long enc2_safe_count, float targ_phase_offset);
+/* Sends the desired print output through to the connected client, via ethernet communication
+ * 
+ * Parameters: 
+ *  - const EthernetClient& client 	--> the connected ethernet communication client 
+ *  - int& print_flag  				--> the string message to process 
+ *  - float m1_targ_freq 			--> the target frequency for motor 1
+ *  - float m1_freq 				--> the measured frequency for motor 1
+ *  - long enc1_safe_count 			--> the current tick count for encoder 1
+ *  - float m2_targ_freq 			--> the target frequency for motor 2
+ *  - float m2_adj_freq 			--> the adjusted frequency for motor 2
+ *  - float m2_freq 				--> the measured frequency for motor 2
+ *  - long enc2_safe_count 			--> the current tick count for encoder 2 
+ *  - float targ_phase_offset 		--> the target phase offset 
+ * 
+ * Returns:
+ *  - void
+ * */
+void print_outputs(const EthernetClient& client, int& print_flag, float m1_targ_freq, float m1_freq, long enc1_safe_count, float m2_targ_freq, float m2_adj_freq, float m2_freq, long enc2_safe_count, float targ_phase_offset);
 ////////////////////////////////////////////////////////////////////////
 
 
@@ -235,8 +298,8 @@ void loop() {
 			interrupts();            
 
 			// Calculate the motor frequencies
-			calc_motor_freq(&motor_1_freq, enc1_safe_count, &enc1_prev_count, &enc1_prev_time);
-			calc_motor_freq(&motor_2_freq, enc2_safe_count, &enc2_prev_count, &enc2_prev_time);
+			calc_motor_freq(motor_1_freq, enc1_safe_count, enc1_prev_count, enc1_prev_time);
+			calc_motor_freq(motor_2_freq, enc2_safe_count, enc2_prev_count, enc2_prev_time);
 
 			// Non-blocking method of getting input from the client
 			if (client.available()) { 
@@ -249,25 +312,30 @@ void loop() {
 
 				// If a new line character was input, process the command
 				if (c == '\n') {
-					int exit_loop = handle_msg(client, msg_str, &power_on, &motor_1_target_freq, &motor_2_target_freq, &target_phase_offset, &print_flag, &new_input_flag);
+					int exit_loop = handle_msg(client, msg_str, power_on, motor_1_target_freq, motor_2_target_freq, target_phase_offset, print_flag, new_input_flag);
 					if (exit_loop) break; // If a disconnect command was given, immediately exit the loop
 				}
 			}
 
+			// If new input has been recieved, reset necessary values
 			if (new_input_flag) {
+				// Reset the volatile tick and rev counters to 0
 				noInterrupts();
 				enc1_count = 0, enc2_count = 0;
 				enc1_revs = 0, enc2_revs = 0;
 				interrupts();
-
+				
+				// Reset the encoder and rev counts to 0
 				enc1_safe_count = 0, enc2_safe_count = 0;
 				enc1_prev_count = 0, enc2_prev_count = 0;
 				enc1_safe_revs = 0, enc2_safe_revs = 0;
 				enc1_prev_revs = 0, enc2_prev_revs = 0;
 
+				// Refresh the previous timers. Prevents timing issues caused by leaving the motors off for a while
                 prev_1_time = micros();
 				prev_2_time = micros();
 
+				// If the motor target speed is 0, reset the cumulative error to 0
                 if (motor_1_target_freq == 0) motor_1_cum_error = 0;
                 if (motor_2_target_freq == 0) motor_2_cum_error = 0;
 
@@ -291,7 +359,6 @@ void loop() {
 					motor_2_adj_freq = motor_2_target_freq; // Motor 2 target does not need adjusting
 				}
 				else { // Needs adjusting, apply some calculations to determine the adjusted target
-					// 
 					float correction_factor = (1 + (PHASE_CORRECTION * ((enc1_safe_count - ((enc2_safe_count - target_phase_offset) * (motor_1_target_freq / motor_2_target_freq))) / float(PPR))));
 					
 					// Limit the correction factor to be within 0.5 and 1.5
@@ -303,8 +370,8 @@ void loop() {
 				}
 
 				// Apply PID to determine motor input values
-				int motor_1_input = calculate_PID(1, motor_1_target_freq, motor_1_freq, &motor_1_cum_error, &motor_1_prev_error, &prev_1_time);
-				int motor_2_input = calculate_PID(2, motor_2_target_freq, motor_2_freq, &motor_2_cum_error, &motor_2_prev_error, &prev_2_time);
+				int motor_1_input = calculate_PID(1, motor_1_target_freq, motor_1_freq, motor_1_cum_error, motor_1_prev_error, prev_1_time);
+				int motor_2_input = calculate_PID(2, motor_2_target_freq, motor_2_freq, motor_2_cum_error, motor_2_prev_error, prev_2_time);
 
 				// Write the input to the motors
 				analogWrite(MOTOR_1, motor_1_input);
@@ -324,17 +391,19 @@ void loop() {
 		digitalWrite(RELAY, LOW);
 		power_on = false;
 
-		// Reset enoder counters to 0
+		// Reset volatile enoder and rev counters to 0
 		noInterrupts();
 		enc1_count = 0, enc2_count = 0;
 		enc1_revs = 0, enc2_revs = 0;
 		interrupts();
 
+		// Reset encoder and rev counters to 0
 		enc1_safe_count = 0, enc2_safe_count = 0;
 		enc1_prev_count = 0, enc2_prev_count = 0;
 		enc1_safe_revs = 0, enc2_safe_revs = 0;
 		enc1_prev_revs = 0, enc2_prev_revs = 0;
 
+		// Clear the message string
 		msg_str = "";
 	}
 }
@@ -355,6 +424,7 @@ void setup_encoders() {
 	pinMode(ENC_2B, INPUT_PULLUP);
 	pinMode(ENC_1X, INPUT_PULLUP);
 
+	// Attaches the correct type of interrupts for encoder 1, based on the desired Pulses Per Revolution (PPR)
 #if PPR == 48
 	// Sets up encoder 1 to count only rising pulses on the A channel (48 ppr)
 	attachInterrupt(digitalPinToInterrupt(ENC_1A), isr_enc1A, RISING);
@@ -367,6 +437,7 @@ void setup_encoders() {
 	attachInterrupt(digitalPinToInterrupt(ENC_1B), isr_enc1B, CHANGE);
 #endif
 
+	// Attaches the correct type of interrupts for encoder 2, based on the desired Pulses Per Revolution (PPR)
 #if PPR == 48
 	// Sets up encoder 2 to count only rising pulses on the A channel (48 ppr)
 	attachInterrupt(digitalPinToInterrupt(ENC_2A), isr_enc2A, RISING);
@@ -387,70 +458,126 @@ void setup_encoders() {
 
 
 
-
-void calc_motor_freq(float* motor_freq, long enc_count, long* enc_prev_count, unsigned long* enc_prev_time) {
+////////////////////////////////////////////////////////////////////////
+/* Calculates the motor frequency, based on time elapsed between ticks  
+ *
+ * Parameters: 
+ *  - float& motor_freq 			--> calculated frequency (Note: can return unchaged if there have been no ticks and timeout period is not met). On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - long enc_count  				--> the number of ticks of the encoder 
+ *  - long& enc_prev_count 			--> the number of previous encoder ticks. Gets updated to match enc_count. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - unsigned lon& enc_prev_time 	--> the previous time (in microseconds) this function was called for the encoder. Gets updated to the current time. On first call pass a variable intialised to micros(), then pass the same variable on repeated calls
+ * 
+ * Returns:
+ *  - void 
+ * */
+void calc_motor_freq(float& motor_freq, long enc_count, long& enc_prev_count, unsigned long& enc_prev_time) {
 	// If the tick count is different to the last time, calculate the motor frequency
-	if (enc_count != *enc_prev_count) { 
-		// Get the current time (us)
-		unsigned long enc_cur_time = micros(); 
-		unsigned long enc_elapsed_time = enc_cur_time - *enc_prev_time; // Calculate the elapsed time (us)
-		*enc_prev_time = enc_cur_time; // Save the current time for the next loop (us)
+	if (enc_count != enc_prev_count) { 
+		// Calculate change in time (elapsed_time)
+		unsigned long enc_cur_time = micros(); // Get the current time (us)
+		unsigned long enc_elapsed_time = enc_cur_time - enc_prev_time; // Calculate the elapsed time (us)
+		enc_prev_time = enc_cur_time; // Save the current time for the next loop (us)
 
 		// If the elapsed time is 0 us, set it to 1 us, to prevent a divide by 0 error
 		if (enc_elapsed_time == 0) enc_elapsed_time = 1; // micro seconds (us)
 
 		// Calculate the motor frequency in Hz
-		*motor_freq = float(enc_count - *enc_prev_count) / float(PPR) / float(enc_elapsed_time) * 1000000.0; // Hz
-		*enc_prev_count = enc_count; // Save the current encoder count for next loop
+		motor_freq = float(enc_count - enc_prev_count) / float(PPR) / float(enc_elapsed_time) * 1000000.0; // Hz
+		enc_prev_count = enc_count; // Save the current encoder count for next loop
 	}
-	// Else if no ticks have been detected for a while, the frequency must be 0
-	else if ((micros() - *enc_prev_time) > 500000) {
-		*motor_freq = 0; // Motor frequency must be 0
+	// Else if no ticks have been detected for 0.5s, the frequency must be 0Hz
+	else if ((micros() - enc_prev_time) > 500000) {
+		motor_freq = 0; // Motor frequency must be 0Hz
 	}
 }
+////////////////////////////////////////////////////////////////////////
 
-int calculate_PID(int motor, float target_freq, float actual_freq, float* cum_error, float* prev_error, unsigned long* prev_time) {
-	// Get change in time (elapsed_time)
-	unsigned long cur_time = micros();
-	unsigned long elapsed_time = cur_time - *prev_time;
-	if (elapsed_time == 0) elapsed_time = 1;
-	*prev_time = cur_time;
-	double elapsed_secs = float(elapsed_time) / 1000000.0;
 
-	// Get Errors for PID
-	float error = target_freq - actual_freq;
-	*cum_error += error * elapsed_secs;
-	float grad_error = (error - *prev_error) / float(elapsed_secs);
+
+////////////////////////////////////////////////////////////////////////
+/* Calculates the errors and applys PID values to calculate the motor input value   
+ *
+ * Parameters: 
+ *  - int motor 				--> number representing the motor (1 = motor 1, 2 = motor 2), this determines which PID values are used
+ *  - float target_freq  		--> the target frequency for the motor to run at 
+ *  - float actual_freq 		--> the measured frequency that the motor is currently running at 
+ *  - float& cum_error 			--> the cumulative error, for the motor. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - float& prev_error 		--> the previous error, for the motor. On first call pass a variable intialised to 0, then pass the same variable on repeated calls
+ *  - unsigned long& prev_time 	--> the previous time (in microseconds) this function was called for the motor. Gets updated to be the current time. On first call pass a variable intialised to micros(), then pass the same variable on repeated calls
+ * 
+ * Returns:
+ *  - int 	--> analog input value for the motor, to produce the needed speed, to get to the target frequency
+ * */
+int calculate_PID(int motor, float target_freq, float actual_freq, float& cum_error, float& prev_error, unsigned long& prev_time) {
+	// Calculate change in time (elapsed_time)
+	unsigned long cur_time = micros(); // Get the current time (us)
+	unsigned long elapsed_time = cur_time - prev_time; // Calculate the elapsed time (us)
+	prev_time = cur_time; // Update the previous time to be the current time
+
+	// If the time is 0us, set it to 1us, to prevent divide by 0 error
+	if (elapsed_time == 0) elapsed_time = 1; 
+
+	// Convert the elapsed time (us) into seconds
+	double elapsed_secs = float(elapsed_time) / 1000000.0; // Elapsed time in seconds
+
+	// Calculate error values for PID feedback
+	float error = target_freq - actual_freq; 	// Difference between target and actual frequency 
+	cum_error += error * elapsed_secs; 	// Cumulative error 
+	float grad_error = (error - prev_error) / float(elapsed_secs); 	// Change in error
+	prev_error = error; 	// Store current error for next time 
 
 	// Calculate PID components
 	float motor_p, motor_i, motor_d;
-	if (motor == 1) {
-		motor_p = error * P1;
-		motor_i = *cum_error * I1;
-		motor_d = grad_error * D1;
+	// If its motor 1, use motor 1 PID values
+	if (motor == 1) { 
+		motor_p = error * P1; 		// Proportional
+		motor_i = cum_error * I1;	// Intergral
+		motor_d = grad_error * D1;	// Derivative
 	}
-	else if (motor == 2) {
-		motor_p = error * P2;
-		motor_i = *cum_error * I2;
-		motor_d = grad_error * D2;
+	// Else if its motor 2, use motor 2 PID values
+	else if (motor == 2) { 
+		motor_p = error * P2; 		// Proportional
+		motor_i = cum_error * I2;	// Intergral
+		motor_d = grad_error * D2;	// Derivative
 	}	
 
-	// Calculate motor input
+	// Calculate motor input speed (in terms of PWM value)
 	int motor_speed = motor_p + motor_i + motor_d;
-	*prev_error = error;
 
-	// Apply constraints to motor 1
+	// Apply constraints to motor input speed
 	if (motor_speed < 0) motor_speed = 0;
 	else if (motor_speed > MOTOR_INPUT_CAP) motor_speed = MOTOR_INPUT_CAP;
 
-	// Update motor power
-	int motor_input = 127 - motor_speed;
-	if (target_freq == 0) motor_input = 127;
+	// Get motor input value from the speed value. Since 0V is full speed and 5V is stopped, the input is opposite to the speed.
+	int motor_input = MOTOR_INPUT_CAP - motor_speed;
 
+	// Redunancy to ensure motor does not get powered unless desired. (i.e. If target is 0, set input to 5V)
+	if (target_freq == 0) motor_input = MOTOR_INPUT_CAP; 
+
+	// Return the input values
 	return motor_input;
 }
+////////////////////////////////////////////////////////////////////////
 
-bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, float* motor_1_target_freq, float* motor_2_target_freq, float* target_phase_offset, int* print_flag, bool* new_input_flag) {
+
+
+////////////////////////////////////////////////////////////////////////
+/* Takes a given string, determines which command it corresponds to, and executes that command. See USER INSTRUCTIONS at top for a list of the available commands and what they do.  
+ * 
+ * Parameters: 
+ *  - const EthernetClient& client 	--> the connected ethernet communication client 
+ *  - String& msg_str  				--> the string message to process 
+ *  - bool& power_on 				--> a variable for if the power is on or off
+ *  - float& motor_1_target_freq 	--> a variable to store the user inputted target frequency
+ *  - float& motor_2_target_freq 	--> a variable to store the user inputted target frequency
+ *  - float& target_phase_offset 	--> a variable to store the user inputted target offset
+ *  - int& print_flag 				--> a variable to indicate the selected print output type
+ *  - bool& new_input_flag 			--> a variable to indicate if there was new input targets 
+ * 
+ * Returns:
+ *  - bool 			--> True indicates to disconnect. False indicates to continue running.
+ * */
+bool handle_msg(const EthernetClient& client, String& msg_str, bool& power_on, float& motor_1_target_freq, float& motor_2_target_freq, float& target_phase_offset, int& print_flag, bool& new_input_flag) {
 	// Convert message to lower case
 	for (auto &x : msg_str) { x = tolower(x); }
 
@@ -458,8 +585,8 @@ bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, f
 	if ((msg_str.substring(0, 2) == "dc") || (msg_str.substring(0, 10) == "disconnect")) {
 		client.print("Disconnecting\r\n");
 		delay(1);
-		client.stop(); // Disconnect
-		return true; // Exit the loop immediately
+		client.stop(); // Disconnect the client 
+		return true; // Returns true, indicating the client has disconnect and to exit the loop immediately
 	}
 	// If input beings with "x" or is "stop" then stop the motors
 	else if ((msg_str.substring(0, 1) == "x") || (msg_str.substring(0,4) == "stop")) {
@@ -469,18 +596,18 @@ bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, f
 		analogWrite(MOTOR_1, 127);
 		analogWrite(MOTOR_2, 127);
 		digitalWrite(RELAY, LOW); 
-		*power_on = false;
+		power_on = false;
 		
 		// Set motor targets to 0
-		*motor_1_target_freq = 0;
-		*motor_2_target_freq = 0;
-		*target_phase_offset = 0;
+		motor_1_target_freq = 0;
+		motor_2_target_freq = 0;
+		target_phase_offset = 0;
 		
 		// Disable prints
-		*print_flag = 0;
+		print_flag = 0;
 		
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If the input starts with "gui" then the data comes from the gui program in an expected form
 	else if (msg_str.substring(0, 3) == "gui") {
@@ -490,82 +617,82 @@ bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, f
 		char *token = strtok(msg_str.c_str(), ",");
 		int c = 0;
 		while (token != NULL) {
-			if (c == 1) *motor_1_target_freq = strtod(token, NULL);
-			else if (c == 2) *motor_2_target_freq = strtod(token, NULL);
-			else if (c == 3) *target_phase_offset = strtod(token, NULL) * (float(PPR) / 360.0);
+			if (c == 1) motor_1_target_freq = strtod(token, NULL);
+			else if (c == 2) motor_2_target_freq = strtod(token, NULL);
+			else if (c == 3) target_phase_offset = strtod(token, NULL) * (float(PPR) / 360.0);
 
 			token = strtok(NULL, ",");
 			++c;
 		}
 
 		// Enable gui print output
-		*print_flag = 3;
+		print_flag = 3;
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is in the form "m1 N", set motor 1 to frequency N (Hz)
 	else if (msg_str.substring(0, 3) == "m1 ") {
 		client.print("Motor 1 command\r\n");
 		String str_seg = msg_str.substring(3, '\n');
 		if (str_seg.toFloat() >= 0) {
-			*motor_1_target_freq = str_seg.toFloat();
+			motor_1_target_freq = str_seg.toFloat();
 		}
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is in the form "m2 N", set motor 2 to frequency N (Hz)
 	else if (msg_str.substring(0, 3) == "m2 ") {
 		client.print("Motor 2 command\r\n");
 		String str_seg = msg_str.substring(3, '\n');
 		if (str_seg.toFloat() >= 0) {
-			*motor_2_target_freq = str_seg.toFloat();
+			motor_2_target_freq = str_seg.toFloat();
 		}
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is in the form "m3 N", set both motors to frequency N (Hz)
 	else if (msg_str.substring(0, 3) == "m3 ") {
 		client.print("Both motors command\r\n");
 		String str_seg = msg_str.substring(3, '\n');
 		if (str_seg.toFloat() >= 0) {
-			*motor_1_target_freq = str_seg.toFloat();
-			*motor_2_target_freq = str_seg.toFloat();
+			motor_1_target_freq = str_seg.toFloat();
+			motor_2_target_freq = str_seg.toFloat();
 		}
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is in the form "po N", set target phase offset to N (Degrees)
 	else if (msg_str.substring(0, 3) == "po ") {
 		client.print("Phase offset command\r\n");
 		String str_seg = msg_str.substring(3, '\n');
 		if (str_seg.toFloat() >= 0) {
-			*target_phase_offset = (str_seg.toFloat()) * (float(PPR) / 360.0);
+			target_phase_offset = (str_seg.toFloat()) * (float(PPR) / 360.0);
 		}
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is "tp" or "toggle_print" print until entered again
 	else if ((msg_str.substring(0, 2) == "tp") || (msg_str.substring(0, 12) == "toggle print")) {
 		client.print("Toggle print command\r\n");
-		if (*print_flag != 2) *print_flag = 2;
-		else *print_flag = 0;
+		if (print_flag != 2) print_flag = 2;
+		else print_flag = 0;
 	}
 	// If input is "p" or "print" print output once
 	else if (msg_str.substring(0, 1) == "p" || (msg_str.substring(0, 5) == "print")) { 
 		client.print("Print command\r\n");
-		*print_flag = 1;
+		print_flag = 1;
 	}
 	// If input is in the form of "zc" or "zero crank" zeros the encoder readings?? (not sure why this exists, kept for the sake of it)
 	else if ((msg_str.substring(0, 2) == "zc") || (msg_str.substring(0, 10) == "zero crank")) {
 		client.print("Zero crank command\r\n");
 
 		// Signal that there is new input values
-		*new_input_flag = true;
+		new_input_flag = true;
 	}
 	// If input is none of the above, return an error message to the client
 	else {
@@ -575,47 +702,82 @@ bool handle_msg(const EthernetClient& client, String& msg_str, bool* power_on, f
 	// Clearing string for next read
 	msg_str = "";
 
+	// Returns false, indicating the program should continue running 
 	return false;
 }
+////////////////////////////////////////////////////////////////////////
 
-void print_outputs(const EthernetClient& client, int print_flag, float m1_targ_freq, float m1_freq, long enc1_safe_count, float m2_targ_freq, float m2_adj_freq, float m2_freq, long enc2_safe_count, float targ_phase_offset) {
+
+
+////////////////////////////////////////////////////////////////////////
+/* Sends the desired print output through to the connected client, via ethernet communication
+ * 
+ * Parameters: 
+ *  - const EthernetClient& client 	--> the connected ethernet communication client 
+ *  - int& print_flag  				--> the string message to process 
+ *  - float m1_targ_freq 			--> the target frequency for motor 1
+ *  - float m1_freq 				--> the measured frequency for motor 1
+ *  - long enc1_safe_count 			--> the current tick count for encoder 1
+ *  - float m2_targ_freq 			--> the target frequency for motor 2
+ *  - float m2_adj_freq 			--> the adjusted frequency for motor 2
+ *  - float m2_freq 				--> the measured frequency for motor 2
+ *  - long enc2_safe_count 			--> the current tick count for encoder 2 
+ *  - float targ_phase_offset 		--> the target phase offset 
+ * 
+ * Returns:
+ *  - void
+ * */
+void print_outputs(const EthernetClient& client, int& print_flag, float m1_targ_freq, float m1_freq, long enc1_safe_count, float m2_targ_freq, float m2_adj_freq, float m2_freq, long enc2_safe_count, float targ_phase_offset) {
+	// Time when the last print output was sent (measured in milliseconds)
 	static unsigned long prev_print_time = millis();
 
+	// If the time period has exceeded the desired delay period, produce the print output
 	if (millis() - prev_print_time >= PRINT_TIME) {
 		switch (print_flag) {
 			case 1: // A single print output (shares its print output with case 2)
-				print_flag = 0; // Set the print flag back to 0, to print once
+				print_flag = 0; // Set the print flag back to 0, to print only once
 				// Intentionally continue to case 2
 			case 2: // A repeating print output (shares its print output with case 1)
+				// Send the motor 1 target and actual frequency and the encoder tick count
 				client.print("m1 targ freq: ");
 				client.print(m1_targ_freq);
 				client.print(" | m1 freq: ");
-				client.println(m1_freq);
+				client.print(m1_freq);
+				client.print(" | enc1 ticks: ");
+				client.print(enc1_safe_count);
+				client.print("\r\n");
+
+				// Send the motor 2 target and actual frequency and the encoder tick count
 				client.print("m2 targ freq: ");
 				client.print(m2_adj_freq);
 				client.print(" | m2 freq: ");
-				client.println(m2_freq);
-				client.print("phase offset targ: ");
-				client.print(targ_phase_offset);
-				client.print(" | enc1 ticks: ");
-				client.print(enc1_safe_count);
+				client.print(m2_freq);
 				client.print(" | enc2 ticks: ");
 				client.print(enc2_safe_count);
+				client.print("\r\n");
+
+				// Send the target and actual phase offset
+				client.print("phase offset targ: ");
+				client.print(targ_phase_offset);
 				client.print(" | phase offset: ");
 				client.print((float(enc1_safe_count) - (float(enc2_safe_count) * (m1_targ_freq / m2_targ_freq))) * (360.0 / float(PPR)));
-				client.print(" | not sure: ");
-				client.println(float(enc1_safe_count) / (float(enc2_safe_count) + targ_phase_offset));
+				client.print("\r\n");
 				break;
 
 			case 3: // The print output for the gui 
+				// Send motor frequencies 
 				client.print(m1_freq);
 				client.print(", ");
 				client.print(m2_freq);
 				client.print(", ");
+
+				// Send the phase offset if applicable, otherwise send '-'
 				if (m2_targ_freq > 0) {
 					client.print((float(enc1_safe_count) - ((float(enc2_safe_count) - targ_phase_offset) * (m1_targ_freq / m2_targ_freq))) * (360.0 / float(PPR)));
 				} else client.print('-');
 				client.print(", ");
+
+				// Send the encoder tick counts, and the expected pulses per revolution
 				client.print(enc1_safe_count % PPR);
 				client.print(", ");
 				client.print(enc2_safe_count % PPR);
@@ -624,9 +786,12 @@ void print_outputs(const EthernetClient& client, int print_flag, float m1_targ_f
 				client.print("\r\n");
 				break;
 
-			default:
+			default: // Default case. Should never be here, do nothing.
 				break;
 		}
+
+		// Store the current time for calculating the elapsed time since the last print output was sent 
 		prev_print_time = millis();
 	}
 }
+////////////////////////////////////////////////////////////////////////
