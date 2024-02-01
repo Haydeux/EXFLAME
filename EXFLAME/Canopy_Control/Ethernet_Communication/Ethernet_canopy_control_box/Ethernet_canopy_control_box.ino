@@ -7,24 +7,31 @@
  */
 
 /*///////////// USER INSTRUCTIONS //////////////////////////////////////
- * This code is used to control the frequency and phase of each disturbance generator
- * This program is intended to communicate with Ethernet_canopy_control_GUI.py but can also be run independently
+ * This code is used to control the motors on the canopy. This is achieved by sending messages through ethernet to the arduino.
+ * The arduino can be connected to by running the "Ethernet_canopy_control_GUI.py" program or by using telnet.
+ * 
+ * "Ethernet_canopy_control_GUI.py" program is the intended way to control the canopy motors. To use it simply run the python program.
  *
- * To upload this code onto the control box ensure the board is set to 'M-Duino family' (industrial shields) and the model is set to 'M-Duino 58+'
- * Some options can be changed before uploading. See the SETUP OPTIONS section below.
- *
- * To control the canopy using only this program, connect to the arduino using telnet by running the command "telnet 192.168.1.102 1050".
- * To connect, press enter. Once connected, the following commands can be used to control the canopy:
- * Disconnect 						'dc' 	or 	'disconnect'	
- * Stop motors                      'x'		or 	'stop'
- * Set motor 1 frequency N (Hz)     'm1 N' (where N is any number 0.0 <= N <= 2.0)
- * Set motor 2 frequency N (Hz)     'm2 N' (where N is any number 0.0 <= N <= 2.0)
- * Set both motors frequency N (Hz) 'm3 N' (where N is any number 0.0 <= N <= 2.0)
- * Set Phase Offset N (Degrees)     'po N' (where N is any number 0.0 <= N <= 360.0)
- * Toggle print                     'tp'	or 	'toggle print'
- * Zero cranks                      'zc'	or 	'zero cranks'
- * Print once 						'p' 	or 	'print'
- * Simulate communication from gui  'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]' 
+ * Alternatively, it is possible to control it using telnet by running the command "telnet 192.168.1.102 1050". This establishes the ethernet connection between the devices.
+ * After running the command "telnet 192.168.1.102 1050", press enter once to connect. Note: 192.168.1.102 is the IP address and 1050 is the port, both of which are set in this program.
+ * Once connected, the following commands can be used to control the canopy:
+ * Disconnect 							'dc' 	or 	'disconnect'	
+ * Stop motors                      	'x'		or 	'stop'
+ * Set motor 1 frequency N (Hz)     	'm1 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set motor 2 frequency N (Hz)     	'm2 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set both motors frequency N (Hz) 	'm3 N' (where N is any number 0.0 <= N <= 2.0)
+ * Set Phase Offset N (Degrees)     	'po N' (where N is any number 0.0 <= N <= 360.0)
+ * Toggle print                     	'tp'	or 	'toggle print'
+ * Zero cranks                      	'zc'	or 	'zero cranks'
+ * Print once 							'p' 	or 	'print'
+ * Simulate communication from gui  	'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]' 
+ * 
+ * 
+ * Note on uploading:
+ * To upload this code onto the control box ensure the board is set to 'M-Duino family' (industrial shields) and the model is set to 'M-Duino 58+'.
+ * See the industrial shields website for instructions on how to add this option to the arduino IDE. (https://www.industrialshields.com/blog/arduino-industrial-1/how-to-install-industrial-shields-boards-in-the-arduino-ide-63) 
+ * 
+ * Some options can be changed before uploading if desired. See the SETUP OPTIONS section below.
 /*//////////////////////////////////////////////////////////////////////
 
 
@@ -61,7 +68,7 @@ EthernetServer server(1050);					 	// Port to create the communication server on
 
 #define PRINT_TIME			50 		// Time interval bewteen prints (milliseconds)
 
-#define MOTOR_INPUT_CAP 	127 	// Analog input limit for the motors
+#define MOTOR_INPUT_CAP 	127 	// Analog input limit for the motors (127 is equivalent to 5V)
 ////////////////////////////////////////////////////////////////////////
 
 
@@ -84,6 +91,10 @@ EthernetServer server(1050);					 	// Port to create the communication server on
 /* Led and relay pins */
 #define LED 		Q1_2	// LED pin
 #define RELAY 		Q1_0	// Relay pin
+
+/* E-stop pin */
+#define ESTOP_POWER	Q1_1	// E-stop power pin - Used to supply power to the sense pin
+#define ESTOP_SENSE	I2_0 	// E-stop sense pin - Used to identify if an emergency-stop is pressed
 ////////////////////////////////////////////////////////////////////////
 
 
@@ -215,6 +226,11 @@ void setup() {
 	pinMode(LED, OUTPUT);
 	digitalWrite(LED, HIGH);
 
+	// Set up the e-stop sensor
+	pinMode(ESTOP_POWER, OUTPUT);
+	pinMode(ESTOP_SENSE, INPUT_PULLUP);
+	digitalWrite(ESTOP_POWER, HIGH);
+
 	// Set motor potentiometer pins as outputs and turn off
 	// Note: analog output is between 0V to 10V. Motors are stationary at 5V (analog write 127) and full speed at 0V (analog write 0)
 	pinMode(MOTOR_1, OUTPUT);
@@ -295,7 +311,7 @@ void loop() {
 			noInterrupts();
 			enc1_safe_revs = enc1_revs;
 			enc2_safe_revs = enc2_revs;
-			interrupts();            
+			interrupts();  
 
 			// Calculate the motor frequencies
 			calc_motor_freq(motor_1_freq, enc1_safe_count, enc1_prev_count, enc1_prev_time);
@@ -315,6 +331,52 @@ void loop() {
 					int exit_loop = handle_msg(client, msg_str, power_on, motor_1_target_freq, motor_2_target_freq, target_phase_offset, print_flag, new_input_flag);
 					if (exit_loop) break; // If a disconnect command was given, immediately exit the loop
 				}
+			}
+
+			// If the E-stop is pressed, disable everything and wait until its reset
+			// NOTE: the E-stop DOES cut power to the motors, this section simply idles the program and ensures everything is stopped when the e-stop is reset
+			if (digitalRead(ESTOP_SENSE) == HIGH) {
+				// Inform the user that the e-stop is pressed
+				client.print("E-stop pressed \b");
+				
+				// Turn motor power off
+				analogWrite(MOTOR_1, 127);
+				analogWrite(MOTOR_2, 127);
+				digitalWrite(RELAY, LOW); 
+				power_on = false;
+				
+				// Set motor targets to 0
+				motor_1_target_freq = 0;
+				motor_2_target_freq = 0;
+				target_phase_offset = 0;
+				
+				// Disable prints
+				print_flag = 0;
+				
+				// Signal that there is new input values
+				new_input_flag = true;
+
+				// Idle until the e-stop is reset. Prints ... on the end of "E-stop pressed" to indicate the program is still active
+				unsigned long temp_time = millis();
+				int temp_count = 0;
+				while (digitalRead(ESTOP_SENSE) == HIGH) {
+					// Update the print output every second
+					if (millis() - temp_time >= 1000) { 
+						if (temp_count >= 3) { // Reset the output to "E-stop pressed" once it gets to "E-stop pressed..."
+							client.print("\r                  "); // Clears the line 
+							client.print("\rE-stop pressed \b"); // " \b" is used to indicate that the GUI program should print this output, without having a visible effect
+							temp_count = 0;
+						}
+						else { // Add a new dot (".") to the end of the "E-stop pressed" to indicate activity
+							client.print(". \b"); // " \b" is used to indicate that the GUI program should print this output, without having a visible effect
+							++temp_count; 
+						}
+						temp_time = millis();
+					}
+				}
+
+				// Inform the user that the e-stop is reset
+				client.print("\r\nE-stop reset\r\n");
 			}
 
 			// If new input has been recieved, reset necessary values

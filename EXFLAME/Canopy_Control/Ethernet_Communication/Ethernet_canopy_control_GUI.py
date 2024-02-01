@@ -6,6 +6,7 @@ import numpy as np
 import math
 import socket
 import time
+import sys
 
 
 class ethernet_client:
@@ -31,7 +32,7 @@ class ethernet_client:
     def recieve_msg(self):
         msg = ""
         charc = ''
-        while ((charc != '\n') and (self.alive)):
+        while ((not ((charc == '\n') or (charc == '\b'))) and (self.alive)):
             data = self.client_socket.recv(1)
             charc = data.decode('utf-8')
             msg += charc
@@ -571,7 +572,7 @@ class MyFrame(wx.Frame):
 
             self.update_motion_profile(float(self.f1), float(self.f2), float(self.po) * math.pi / 180)
         else:
-            print(msg, sep="", end="")
+            print(msg, sep="", end="", flush=True)
 
     # Callback for closing the window
     def on_close(self, evt):

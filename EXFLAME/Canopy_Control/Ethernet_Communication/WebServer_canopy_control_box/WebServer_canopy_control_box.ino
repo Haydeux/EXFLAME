@@ -1,3 +1,7 @@
+// A experimental version to test using a webpage as the control method. Currently only
+// turns an LED on and off. Intended to be an alternative to "Ethernet_canopy_control_box" 
+// but has not yet been finished. 
+
 
 // Go to web address http://192.168.1.102:80 to connect
 // Switches the LED on and off by pressing the button. Done through ethernet connection
@@ -9,7 +13,7 @@
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }; //physical mac address
 byte ip[] = { 192, 168, 1, 102 }; // ip in lan
 
-EthernetServer server(80);; //server port
+EthernetServer server(80);; // Server port. Port 80 is reserved for http connection (which is used here).
 
 String readString; 
 
