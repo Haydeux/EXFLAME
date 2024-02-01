@@ -1,13 +1,9 @@
 import wx
-import serial
 from threading import Thread
 from wx.lib.plot import PlotCanvas, PlotGraphics, PolySpline, PolyMarker
 import numpy as np
 import math
 import socket
-import time
-import sys
-
 
 class ethernet_client:
     PORT = 1050                     # Port that the arduino is listening on (Must match the Port in the .ino code)
@@ -582,6 +578,6 @@ class MyFrame(wx.Frame):
 if __name__ == '__main__':
     app = wx.App()
     frame = MyFrame()
-    frame.SetMaxSize(wx.Size(717, 200))
-    frame.SetMinSize(wx.Size(717, 200))
+    frame.SetMaxSize(wx.Size(767, 250))
+    frame.SetMinSize(wx.Size(767, 250))
     app.MainLoop()

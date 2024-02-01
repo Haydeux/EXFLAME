@@ -1,6 +1,6 @@
 /* Title: 		Canopy Control Box (Ethernet Communication)
  * Author(s): 	Hayden Moxsom, (Credit: Jackson Whitwell's Serial Communication version)
- * Modified: 	31/01/2024
+ * Modified: 	01/02/2024
  * Description:	Arduino code which controls two motors based on messages sent through ethernet. This code is intended
  * 				to be uploaded onto the Mduino, inside the canopy control box. Some options can be adjusted before 
  * 				uploading (see SETUP OPTIONS on line 39).
@@ -356,9 +356,14 @@ void loop() {
 				// Signal that there is new input values
 				new_input_flag = true;
 
-				// Idle until the e-stop is reset. Prints ... on the end of "E-stop pressed" to indicate the program is still active
+				// Initialise temporary variables for the while loop
 				unsigned long temp_time = millis();
 				int temp_count = 0;
+
+				// Wait 100ms to debounce the e-stop sense
+				delay(100);
+
+				// Idle until the e-stop is reset. Prints ... on the end of "E-stop pressed" to indicate the program is still active
 				while (digitalRead(ESTOP_SENSE) == HIGH) {
 					// Update the print output every second
 					if (millis() - temp_time >= 1000) { 
