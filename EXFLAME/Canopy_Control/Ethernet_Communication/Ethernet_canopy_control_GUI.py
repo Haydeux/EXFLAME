@@ -1,71 +1,117 @@
-import wx
-from threading import Thread
+'''
+ * Title:       Canopy Control GUI (Ethernet Version)
+ * Author(s):   Jackson Whitwell (GUI application), Hayden Moxsom (ethernet communication client)
+ * Modified:    02/02/2024
+ * Description: A GUI application that is designed to communicate with an arduino running the 
+ *              "Ethernet_canopy_control_box.ino" program. The program connects to the arduino and 
+ *              then opens a UI that controls the motion of the canopy. The control is achieved by 
+ *              sending command messages to the arduino across ethernet.
+'''
+
+
+# Imports
+import wx                       # "wxPython" module. Version 4.2.1 was used and works. (Other versions are untested but should work)
 from wx.lib.plot import PlotCanvas, PlotGraphics, PolySpline, PolyMarker
-import numpy as np
-import math
-import socket
 
+import numpy as np              # "numpy" module. Tested on version 1.24.4 (However, other versions should work)
+
+from threading import Thread    # Default library
+import math                     # Default library
+import socket                   # Default library
+
+
+# Handles ethernet communication with the arduino
 class ethernet_client:
-    PORT = 1050                     # Port that the arduino is listening on (Must match the Port in the .ino code)
-    IP_ADDR = "192.168.1.102"       # IP address of the arduino (Must match the IP being used in the .ino code)
+    PORT = 1050                 # Port that the arduino is listening on (Must match the Port in the .ino code)
+    IP_ADDR = "192.168.1.102"   # IP address of the arduino (Must match the IP being used in the .ino code)
 
+    # Initialises the ethernet communication
     def __init__(self, callback_func = None):
+        # Connect to the communication server (hosted by the arduino) and send a new line character to connect
         server_addr = (self.IP_ADDR, self.PORT)
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect(server_addr)
         self.client_socket.sendall(b'\n')
+
+        # Recieve and print the "Connected" message, to let the user know the connection was established
         connect_msg = self.client_socket.recv(24)
         print(connect_msg.decode("utf-8"), sep="", end="")
 
+        # Initialise variables for the message recieving thread
         self.callback_func = callback_func
         self.thread = None
         self.alive = False
 
+    # Sends a string message to the connected arduino
     def send_msg(self, msg: str):
+        # Convert the string into unicode bytes
         msg_b = msg.encode("utf-8")
+        # Send the encode message
         self.client_socket.sendall(msg_b)
 
+    # Gets a message from the connected arduino. End of message is indicated using a newline (\n) or backspace (\b)
     def recieve_msg(self):
+        # Initialise the empty string and character
         msg = ""
         charc = ''
+
+        # Continue getting characters until a newline (\n) or a backspace (\b) is found.
         while ((not ((charc == '\n') or (charc == '\b'))) and (self.alive)):
+            # Get 1 character from the communication
             data = self.client_socket.recv(1)
+
+            # Decode the character and add it to the message string
             charc = data.decode('utf-8')
             msg += charc
+
+        # Return the full message
         return msg
 
+    # Safely disconnects from the communication server
     def close(self):
+        # Send the disconnect command and recieve the confirmation reply
         self.client_socket.send(b'dc\n')
         dc_msg = self.client_socket.recv(24)
         print(dc_msg.decode("utf-8"), sep="", end="")
+
+        # If the message reciever thread is running, stop it
         if self.alive:
             self.stop_reader()
+
+        # Close the connection (disconnect)
         self.client_socket.close()
 
+    # Starts the message recieveing thread
     def start_reader(self):
         self.alive = True
         self.thread = Thread(target = self.msg_reciever)
-        self.thread.daemon = True
         self.thread.start()
 
+    # Stops the message recieving thread
     def stop_reader(self):
         if (self.thread is not None):
-            self.alive = False
-            self.thread.join()
+            self.alive = False # Signal that the thread should end
+            self.thread.join() # Wait until the thread exits
             self.thread = None
 
+    # Continuously looks for new messages from the arduino, and then returns them to the main thread in a thread safe manner
     def msg_reciever(self):
+        # Continue running as long as its kept alive
         while self.alive:
+            # Try to read a message from the arduino
             msg = self.recieve_msg()
+
+            # If the message is not empty and a callback function exists, return the message to the main thread
             if ((msg != "") and (self.callback_func is not None) and self.alive):
-                # return value to main loop in thread-safe manner
+                # Return value to main loop in thread-safe manner
                 wx.CallAfter(self.callback_func, msg)
 
-# Window that pops up when advanced buton is pressed to alter the crank parameters
+
+# Window that pops up when the advanced buton is pressed to alter the crank parameters
 class AdvancedWindow(wx.Frame):
-    # Initialise
+    # Initialise the window
     def __init__(self, parent):
-        super(AdvancedWindow, self).__init__(parent, title='Advanced Settings', size=(340, 200))
+        super(AdvancedWindow, self).__init__(parent, title='Advanced Settings', size=(400, 280))
         self.parent = parent
         self.adv_lock = False
 
@@ -85,7 +131,7 @@ class AdvancedWindow(wx.Frame):
         self.panel.SetSizerAndFit(self.big_sizer)
         self.Centre()
 
-    # Initialise a column of labels
+    # Create the column of labels
     def init_adv_col_1(self):
         # Sizer to space out labels
         self.adv_col_1_sizer = wx.BoxSizer(wx.VERTICAL) 
@@ -93,52 +139,52 @@ class AdvancedWindow(wx.Frame):
         # Crank A Amplitude Label
         line1= wx.BoxSizer(wx.HORIZONTAL) 
         l1_label1 = wx.StaticText(self.panel, -1, "Crank A Amplitude") 
-        line1.Add(l1_label1, 0, wx.EXPAND|wx.CENTER|wx.ALL,5)
+        line1.Add(l1_label1, 0, wx.EXPAND|wx.CENTER|wx.ALL, 10)
         self.adv_col_1_sizer.Add(line1)    
 
         # Crank B Amplitude Label
         line2 = wx.BoxSizer(wx.HORIZONTAL) 
         l2_label1 = wx.StaticText(self.panel, -1, "Crank B Amplitude") 
-        line2.Add(l2_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,8)
+        line2.Add(l2_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 10)
         self.adv_col_1_sizer.Add(line2)
 
         # Arm Length Label
         line3 = wx.BoxSizer(wx.HORIZONTAL) 
         l3_label1 = wx.StaticText(self.panel, -1, "Arm Length") 
-        line3.Add(l3_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,8)
+        line3.Add(l3_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 10)
         self.adv_col_1_sizer.Add(line3)
 
         # Encoder Offset Label
         line4 = wx.BoxSizer(wx.HORIZONTAL) 
         l4_label1 = wx.StaticText(self.panel, -1, "Absolute Encoder Offset") 
-        line4.Add(l4_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,8)
+        line4.Add(l4_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 10)
         self.adv_col_1_sizer.Add(line4)
 
-    # Initialise a column of text boxes and some buttons
+    # Create the column of text boxes and some buttons
     def init_adv_col_2(self):
         # Sizer to space out text boxes and buttons
         self.adv_col_2_sizer = wx.BoxSizer(wx.VERTICAL) 
 
         # Edit Crank A Amplitude
         self.crank_a_amplitude_set = wx.TextCtrl(self.panel, value = str(self.parent.crank_a_amplitude), style = wx.TE_READONLY|wx.TE_CENTER) 
-        self.adv_col_2_sizer.Add(self.crank_a_amplitude_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,5) 
+        self.adv_col_2_sizer.Add(self.crank_a_amplitude_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 5) 
 
         # Edit Crank B Amplitude
         self.crank_b_amplitude_set = wx.TextCtrl(self.panel, value = str(self.parent.crank_b_amplitude), style = wx.TE_READONLY|wx.TE_CENTER) 
-        self.adv_col_2_sizer.Add(self.crank_b_amplitude_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,5) 
+        self.adv_col_2_sizer.Add(self.crank_b_amplitude_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 5) 
 
         # Edit Arm Length
         self.arm_length_set = wx.TextCtrl(self.panel, value = str(self.parent.arm_length), style = wx.TE_READONLY|wx.TE_CENTER) 
-        self.adv_col_2_sizer.Add(self.arm_length_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,5) 
+        self.adv_col_2_sizer.Add(self.arm_length_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 5) 
 
         # Edit Encoder Absolute Offset
         self.encoder_absolute_difference_set = wx.TextCtrl(self.panel, value = str(self.parent.encoder_absolute_difference), style = wx.TE_READONLY|wx.TE_CENTER) 
-        self.adv_col_2_sizer.Add(self.encoder_absolute_difference_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,5) 
+        self.adv_col_2_sizer.Add(self.encoder_absolute_difference_set,1,wx.EXPAND|wx.ALIGN_LEFT|wx.ALL, 5) 
 
         # Create another box sizer for spacing buttons
         adv_btns = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Lock btn for setting editability
+        # Lock button for setting editability
         self.adv_lock_btn = wx.Button(self.panel, label='Unlock')
         self.adv_lock_btn.Bind(wx.EVT_BUTTON, self.on_press_adv_lock)
         adv_btns.Add(self.adv_lock_btn, 0, wx.ALL | wx.LEFT, 5)
@@ -157,7 +203,7 @@ class AdvancedWindow(wx.Frame):
         except ValueError:
             return False
 
-    # Locking functionality
+    # Input locking functionality
     def on_press_adv_lock(self, event):
         # Change editability of target inputs
         self.adv_lock = not self.adv_lock
@@ -172,6 +218,7 @@ class AdvancedWindow(wx.Frame):
         else:
             self.adv_lock_btn.SetLabel("Lock")
 
+    # Seems to calculate the difference in rotation position between the motors. Needs changing to use the homing index channel for this instead
     def get_absolute_setpoint_difference(self, amp_a, amp_b):
         offset_a = self.get_offset_from_amplitude(amp_a)
         offset_b = self.get_offset_from_amplitude(amp_b)
@@ -181,6 +228,7 @@ class AdvancedWindow(wx.Frame):
         print("overall ", overall_offset)
         return offset_a, offset_b
 
+    # Seems to calculate the rotation position of the motor. Needs changing to use the homing index channel for this instead 
     def get_offset_from_amplitude(self, amp):
         if amp == 0.012:
             offset = 0
@@ -210,14 +258,15 @@ class AdvancedWindow(wx.Frame):
             self.parent.amplitude_setpoint_a, self.parent.amplitude_setpoint_b = self.get_absolute_setpoint_difference(self.parent.crank_a_amplitude, self.parent.crank_b_amplitude)
             self.Destroy()
 
-# UI stuffs
+
+# UI window for the user to control the motors with.
 class MyFrame(wx.Frame):    
-    # Initialise
+    # Initialise the window
     def __init__(self, style=wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER):
         #self.style=wx.DEFAULT_FRAME_STYLE ^ wx.RESIZE_BORDER
         self.phase1 = 0.0
         self.phase2 = 0.0
-        self.encoder_absolute_difference = 0
+        self.encoder_absolute_difference = 0 # Needs changing to utilise the index channel (homing) for the motors
         self.amplitude_setpoint_a = 0
         self.amplitude_setpoint_b = 0
         self.arm_length = 0.38
@@ -233,6 +282,7 @@ class MyFrame(wx.Frame):
         self.po = "0.0"
         self.lock = False
 
+        # Start the ethernet communication client
         self.eth_client = ethernet_client(self.on_msg_recieved)
         self.eth_client.start_reader()
 
@@ -241,13 +291,14 @@ class MyFrame(wx.Frame):
 
     # Setup window layout
     def init_gui(self):
-        super().__init__(parent=None, title='Canopy control', size=(717, 200))
+        super().__init__(parent=None, title='Canopy control', size=(767, 250))
 
         self.advanced_window = None
 
         self.panel = wx.Panel(self, wx.ID_ANY)      
         self.big_sizer = wx.BoxSizer(wx.HORIZONTAL)  
-
+        
+        # Setup columns
         self.init_col1()
         self.init_col2()
         self.init_col3()
@@ -263,7 +314,7 @@ class MyFrame(wx.Frame):
         self.panel.SetSizer(self.big_sizer)     
         self.Show()
 
-    # Define Labels column
+    # Create labels column
     def init_col1(self):
         self.col_1_sizer = wx.BoxSizer(wx.VERTICAL) 
 
@@ -291,7 +342,7 @@ class MyFrame(wx.Frame):
         line4.Add(l4_label1, 1, wx.EXPAND|wx.ALIGN_LEFT|wx.ALL,8)
         self.col_1_sizer.Add(line4)
 
-    # Define target input column
+    # Create target input column
     def init_col2(self):
         self.col_2_sizer = wx.BoxSizer(wx.VERTICAL) 
 
@@ -326,7 +377,7 @@ class MyFrame(wx.Frame):
         btns.Add(self.apply_btn, 0, wx.ALL, 5)
         self.col_2_sizer.Add(btns)
     
-    # Define increment buttons
+    # Create increment buttons
     def init_col3(self):
         self.col_3_sizer = wx.BoxSizer(wx.VERTICAL) 
 
@@ -373,7 +424,7 @@ class MyFrame(wx.Frame):
         self.col_4_btn_sizer.Add(self.advanced_btn, 0, wx.ALL, 5,)
         self.col_4_sizer.Add(self.col_4_btn_sizer)
 
-    # plot the motion profile
+    # Calculate the expected motion profile of the canopy
     def generate_profile(self, target_frequency_a, target_frequency_b, initial_phase_offset):
         x = np.zeros(2000)
         y = np.zeros(2000)
@@ -381,13 +432,16 @@ class MyFrame(wx.Frame):
         for theta in range(0, 2000):
             phase_a = (theta * math.pi / 100) * target_frequency_a
             phase_b = ((theta * math.pi / 100) * target_frequency_b) + initial_phase_offset
+
             Ba = math.asin(-(self.crank_a_amplitude * math.sin(phase_a)) / self.arm_length)
             Bb = math.asin(-(self.crank_b_amplitude * math.sin(phase_b)) / self.arm_length)
+
             x[theta] = self.crank_a_amplitude * math.cos(phase_a) + self.arm_length * math.cos(Ba)
             y[theta] = self.crank_b_amplitude * math.cos(phase_b) + self.arm_length * math.cos(Bb)
 
         return x, y
     
+    # Draws the plot of the expected motion profile and the current position
     def draw_motion_profile(self, f1, f2, po):
         # Generate some Data.
         x_data, y_data = self.generate_profile(f1, f2, po)
@@ -402,6 +456,7 @@ class MyFrame(wx.Frame):
             width = 3,
         )
 
+        # Calculate current canopy position
         ph_a = float(self.phase1) * (2 * math.pi / self.ppr)
         ph_b = float(self.phase2) * (2 * math.pi / self.ppr)
         Ba = math.asin(-(self.crank_a_amplitude * math.sin(ph_a)) / self.arm_length)
@@ -409,6 +464,7 @@ class MyFrame(wx.Frame):
         pt_x = self.crank_a_amplitude * math.cos(ph_a) + self.arm_length * math.cos(Ba)
         pt_y = self.crank_b_amplitude * math.cos(ph_b) + self.arm_length * math.cos(Bb)
         
+        # Apply physical constraints
         xborder = (x_data.max() - x_data.min()) / 20
         yborder = (y_data.max() - y_data.min()) / 20
         if xborder > 0:
@@ -424,14 +480,17 @@ class MyFrame(wx.Frame):
             ymin = y_data.min() - 0.1
             ymax = y_data.max() + 0.1
 
+        # Plot the point
         point = (pt_x, pt_y)
         marker = PolyMarker(point, marker='circle', size=1)
 
         return PlotGraphics([line, marker]), xmin, xmax, ymin, ymax
     
+    # Creates and updates the plot
     def update_motion_profile(self, f1, f2, po):
         profile, xmin, xmax, ymin, ymax = self.draw_motion_profile(f1, f2, po)
 
+        # Check physical constraints
         if ((xmax - xmin) > (ymax - ymin)):
             ycenter = (ymax + ymin) / 2
             ymax = ycenter + ((xmax - xmin) / 2)
@@ -441,8 +500,10 @@ class MyFrame(wx.Frame):
             xmax = xcenter + ((ymax - ymin) / 2)
             xmin = xcenter - ((ymax - ymin) / 2)
 
+        # Draw the plot
         self.canvas.Draw(profile, xAxis=(xmin, xmax), yAxis=(ymin, ymax))
 
+    # Create the plot column
     def init_col5(self):
         # Plot the spline
         self.canvas = PlotCanvas(self.panel)
@@ -451,6 +512,7 @@ class MyFrame(wx.Frame):
         self.canvas.xSpec = 'none'
         self.canvas.SetBackgroundColour(self.panel.GetBackgroundColour())
 
+        # Initialise the plot as stationary
         self.update_motion_profile(0, 0, 0)
 
         self.big_sizer.Add(self.canvas, proportion=1, flag=wx.EXPAND)
@@ -486,24 +548,28 @@ class MyFrame(wx.Frame):
         stop_msg = "x\n"
         self.eth_client.send_msg(stop_msg)
 
+        # Set all target values to 0
         self.frequency1_set.SetValue("0")
         self.frequency2_set.SetValue("0")
         self.phase_offset_set.SetValue("0")
 
+        # Reset all measured values to 0
         self.frequency1_val.SetValue("0")
         self.frequency2_val.SetValue("0")
         self.phase_offset_val.SetValue("0")
         self.phase1 = 0
         self.phase2 = 0
 
+        # Reset the motion graph back to stationary
         self.update_motion_profile(float(self.f1), float(self.f2), float(self.po) * math.pi / 180)
 
+    # Create an advanced options window, on "advanced" button press
     def on_press_advanced(self, event):
         if not self.advanced_window:
             self.advanced_window = AdvancedWindow(self)
         self.advanced_window.Show()
 
-    # Lock button logic
+    # Toggle input lock, when "lock"/"unlock" button is pressed
     def on_press_lock(self, event):
         # Change editability of target inputs
         self.lock = not self.lock
@@ -556,28 +622,47 @@ class MyFrame(wx.Frame):
         self.frequency2_set.SetValue(self.f2)
         self.phase_offset_set.SetValue(self.po)
     
+    # Recieves the message from the reader thread, and handles it. Updates its values if in expected form, otherwise displays the message to the user
     def on_msg_recieved(self, msg):
+        # Split the message, if possible
         msgs = msg.split(',')
+
+        # Check if the message is in the expected form
         if (len(msgs) == 6):
+            # It is, therefore its measured data values being sent from the arduino
             self.frequency1_val.SetValue(msgs[0])
             self.frequency2_val.SetValue(msgs[1])
             self.phase_offset_val.SetValue(msgs[2])
-            self.ppr = int(msgs[5])
+            self.ppr = int(msgs[5]) 
             self.phase1 = str((float(msgs[3]) + self.amplitude_setpoint_a) % self.ppr)
             self.phase2 = str((float(msgs[4]) + self.amplitude_setpoint_b) % self.ppr)
-
+            
+            # Update the motion profile using the newly recieved data
             self.update_motion_profile(float(self.f1), float(self.f2), float(self.po) * math.pi / 180)
         else:
-            print(msg, sep="", end="", flush=True)
+            # It is not the expected form, therefore it must be intended for displaying
+            print(msg, sep="", end="", flush=True) # Display the message
 
-    # Callback for closing the window
+    # Callback for when the window is closed 
     def on_close(self, evt):
-        self.eth_client.close()
+        self.eth_client.close() # Close the ethernet communication client
         evt.Skip()    
 
-if __name__ == '__main__':
+
+# Starts the application
+def main():
+    # Intialise the app
     app = wx.App()
     frame = MyFrame()
+
+    # Locks the window to a set size. May be better to lock the aspect ratio instead
     frame.SetMaxSize(wx.Size(767, 250))
     frame.SetMinSize(wx.Size(767, 250))
+
+    # Run the app
     app.MainLoop()
+
+
+# Run the application
+if __name__ == '__main__':
+    main()

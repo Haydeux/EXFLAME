@@ -1,9 +1,11 @@
 /* Title: 		Canopy Control Box (Ethernet Communication)
- * Author(s): 	Hayden Moxsom, (Credit: Jackson Whitwell's Serial Communication version)
- * Modified: 	01/02/2024
- * Description:	Arduino code which controls two motors based on messages sent through ethernet. This code is intended
- * 				to be uploaded onto the Mduino, inside the canopy control box. Some options can be adjusted before 
- * 				uploading (see SETUP OPTIONS on line 39).
+ * Author(s): 	Hayden Moxsom, (with credit to: Jackson Whitwell's Serial Communication version)
+ * Modified: 	02/02/2024
+ * Description:	Arduino code which controls two motors based on messages sent through ethernet. 
+ * 				This is intended to be used in conjunction with the Ethernet_canopy_control_GUI.py
+ * 				program, but can also be used with telnet connection. See USER INTRUCTIONS (line 11).
+ * 				This code is intended to be uploaded onto the Mduino, inside the canopy control 
+ * 				box. Some options can be adjusted before uploading (see SETUP OPTIONS on line 39).
  */
 
 /*///////////// USER INSTRUCTIONS //////////////////////////////////////
@@ -14,17 +16,17 @@
  *
  * Alternatively, it is possible to control it using telnet by running the command "telnet 192.168.1.102 1050". This establishes the ethernet connection between the devices.
  * After running the command "telnet 192.168.1.102 1050", press enter once to connect. Note: 192.168.1.102 is the IP address and 1050 is the port, both of which are set in this program.
- * Once connected, the following commands can be used to control the canopy:
+ * Once connected, the following commands are available to control the canopy:
  * Disconnect 							'dc' 	or 	'disconnect'	
- * Stop motors                      	'x'		or 	'stop'
- * Set motor 1 frequency N (Hz)     	'm1 N' (where N is any number 0.0 <= N <= 2.0)
- * Set motor 2 frequency N (Hz)     	'm2 N' (where N is any number 0.0 <= N <= 2.0)
- * Set both motors frequency N (Hz) 	'm3 N' (where N is any number 0.0 <= N <= 2.0)
- * Set Phase Offset N (Degrees)     	'po N' (where N is any number 0.0 <= N <= 360.0)
- * Toggle print                     	'tp'	or 	'toggle print'
- * Zero cranks                      	'zc'	or 	'zero cranks'
+ * Stop motors							'x'		or 	'stop'
+ * Set motor 1 frequency N (Hz)			'm1 N'	(where N is any number 0.0 <= N <= 2.0)
+ * Set motor 2 frequency N (Hz)			'm2 N' 	(where N is any number 0.0 <= N <= 2.0)
+ * Set both motors frequency N (Hz) 	'm3 N' 	(where N is any number 0.0 <= N <= 2.0)
+ * Set Phase Offset N (Degrees)			'po N' 	(where N is any number 0.0 <= N <= 360.0)
+ * Toggle print							'tp'	or 	'toggle print'
+ * Zero cranks							'zc'	or 	'zero cranks'
  * Print once 							'p' 	or 	'print'
- * Simulate communication from gui  	'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]' 
+ * Simulate communication from gui 		'gui,[MOTOR 1 FREQUENCY],[MOTOR 2 FREQUENCY],[PHASE OFFSET]' 
  * 
  * 
  * Note on uploading:
