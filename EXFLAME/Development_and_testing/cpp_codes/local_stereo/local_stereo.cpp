@@ -188,6 +188,18 @@ int main(int argc, char **argv) {
     const double baseline = 0.03316; // meters
     const double baseline_mm = baseline * 1000.0; // mm
 
+
+
+
+    // Creating an object of StereoBM algorithm
+    //Ptr<StereoBM> stereo = StereoBM::create(160, 5);
+
+    // Creating an object of StereoSGBM algorithm
+    Ptr<StereoSGBM> stereo = StereoSGBM::create(0, 160, 15, 0, (50*3*9), 200, 0, 1, 50, 4, 2);
+
+
+
+
     // Initialise the ros node and message
     ros::init(argc, argv, "kiwi_sender");
     ros::NodeHandle kiwi_n;
@@ -247,9 +259,9 @@ int main(int argc, char **argv) {
     Mat closing, opening;
     std::vector<std::vector<Point>> contours;
 
-    Mat roi_img, template_img, roi_resized, template_resized;
+    Mat left_stereo, right_stereo, roi_resized, template_resized;
 
-    Mat rect_r_copy(480, 640, CV_8UC3);
+    Mat rect_r_copy(480, 640, CV_8UC3), rect_l_copy(480, 640, CV_8UC3);
     Mat match_result;
 
     double min_val, max_val;
@@ -295,9 +307,9 @@ int main(int argc, char **argv) {
 
             // auto start_kiwi = std::chrono::high_resolution_clock::now();
             
-            rectified_right.copyTo(rect_r_copy);
+            rectified_left.copyTo(rect_l_copy);
             
-            cvtColor(rectified_right, hsvImage, COLOR_BGR2HSV);
+            cvtColor(rectified_left, hsvImage, COLOR_BGR2HSV);
             inRange(hsvImage, lowerYellow, upperYellow, yellowMask);
             
             // auto start_morph = std::chrono::high_resolution_clock::now(); 
@@ -315,38 +327,53 @@ int main(int argc, char **argv) {
                     Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
 
                     // Display stuff
-                    rectangle(rect_r_copy, boundingBox, Scalar(0, 255, 0), 2); 
-                    circle(rect_r_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
+                    rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
+                    circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
 
                     // Creates an roi to for horizontal sliding 
-                    int x_start = boundingBox.x+10;
-                    int x_width = boundingBox.width+150;
-                    if (x_start + x_width >= rectified_left.cols) continue;
+                    int x_start = boundingBox.x - 170;
+                    int x_width = boundingBox.width + 180;
+                    if (x_start + x_width >= rectified_right.cols) continue;
+                    if (x_start < 0) continue;
 
-                    Rect roi_match(x_start, circ_centre.y, x_width, 1); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                    Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                    roi_img = rectified_left(roi_match);
-                    template_img = rectified_right(roi_template);
-
-                    // resize(roi_img, roi_resized, Size(roi_img.cols*4, roi_img.rows), 0.0, 0.0, INTER_LINEAR);
-                    // resize(template_img, template_resized, Size(template_img.cols*4, template_img.rows), 0.0, 0.0, INTER_LINEAR);
-
-                    // TESTING
-                    // Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                    // Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                    // roi_img = rectified_left(roi_match);
-                    // template_img = rectified_right(roi_template);
-
-                    resize(roi_img, roi_resized, Size(roi_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
-                    resize(template_img, template_resized, Size(template_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
+                    int y_start = boundingBox.y - 10;
+                    int y_height = boundingBox.height + 20;
+                    if (y_start < 0) {
+                        y_start = boundingBox.y;
+                        y_height = boundingBox.height + 10;
+                        if (y_start + y_height >= rectified_right.rows) {
+                            y_height = boundingBox.height;
+                        }
+                    }
+                    else if (y_start + y_height >= rectified_right.rows) {
+                        y_height = boundingBox.height + 10;
+                    }
                     
-                    // Perform template matching
-                    // matchTemplate(roi_img, template_img, match_result, TM_SQDIFF_NORMED);
-                    matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
-                    minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);                    
 
-                    disparity = 10.0 + min_loc.x/16.0;
-                    depth_mm = focal_length_pixel * baseline_mm / disparity;
+
+                    Rect roi_stereo(x_start, y_start, x_width, y_height);
+
+                    left_stereo = rectified_left(roi_stereo);
+                    right_stereo = rectified_right(roi_stereo);
+
+                    Mat roi_bw_left, roi_bw_right;
+                    Mat disparity_map(boundingBox.height+20, x_width, CV_16S), disparity_vals(boundingBox.height+20, x_width, CV_32F);
+
+                    //cvtColor(left_stereo, roi_bw_left, COLOR_RGB2GRAY);
+                    //cvtColor(right_stereo, roi_bw_right, COLOR_RGB2GRAY);
+
+                    //stereo->compute(roi_bw_left, roi_bw_right, disparity_map);
+
+                    stereo->compute(left_stereo, right_stereo, disparity_map);
+
+                    disparity_map.convertTo(disparity_vals, CV_32F, 1.0/16.0);
+
+                    imshow("Disparity", disparity_vals/160.0);
+
+
+
+
+                    depth_mm = 10;
 
                     double xmm, ymm, zmm=depth_mm;
                     xmm = zmm * (double)(circ_centre.x - 320) / 854.189844;
@@ -354,8 +381,8 @@ int main(int argc, char **argv) {
                     double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
                     
                     // Display stuff
-                    circle(rectified_left, Point(circ_centre.x+min_loc.x/16+10,circ_centre.y), 5, Scalar(255,0,0), FILLED);
-                    putText(rect_r_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
+                    circle(rectified_right, Point(circ_centre.x-disparity,circ_centre.y), 5, Scalar(255,0,0), FILLED);
+                    putText(rect_l_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
                     // auto end_custom = std::chrono::high_resolution_clock::now(); 
                     // auto duration_custom = std::chrono::duration_cast<std::chrono::microseconds>(end_custom - start_custom);
                     // custom_duration += duration_custom;
@@ -387,7 +414,7 @@ int main(int argc, char **argv) {
 
 
             imshow("Kiwi mask", opening);
-            imshow("Kiwi distances", rect_r_copy);
+            imshow("Kiwi distances", rect_l_copy);
 
             imshow("Left rectified", rectified_left);
             imshow("Right rectified", rectified_right);

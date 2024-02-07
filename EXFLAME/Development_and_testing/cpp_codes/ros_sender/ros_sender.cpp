@@ -1,3 +1,11 @@
+
+/* 
+ * Comile using O2 optimisation. It is about 1-2 Hz faster than O3 optimisation.
+ * Gets approximately 267 Hz rate when not displaying images.
+*/
+
+
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudaimgproc.hpp>
@@ -267,7 +275,7 @@ int main(int argc, char **argv) {
 
     Mat roi_img, template_img, roi_resized, template_resized;
 
-    Mat rect_r_copy(480, 640, CV_8UC3);
+    Mat rect_l_copy(480, 640, CV_8UC3);
     Mat match_result;
 
     double min_val, max_val;
@@ -312,9 +320,9 @@ int main(int argc, char **argv) {
 
             // auto start_kiwi = std::chrono::high_resolution_clock::now();
             
-            rectified_right.copyTo(rect_r_copy);
+            rectified_left.copyTo(rect_l_copy);
             
-            cvtColor(rectified_right, hsvImage, COLOR_BGR2HSV);
+            cvtColor(rectified_left, hsvImage, COLOR_BGR2HSV);
             inRange(hsvImage, lowerYellow, upperYellow, yellowMask);
             
             // auto start_morph = std::chrono::high_resolution_clock::now(); 
@@ -332,37 +340,28 @@ int main(int argc, char **argv) {
                     Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
 
                     // Display stuff
-                    rectangle(rect_r_copy, boundingBox, Scalar(0, 255, 0), 2); 
-                    circle(rect_r_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
+                    rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
+                    circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
 
                     // Creates an roi to for horizontal sliding 
-                    int x_start = boundingBox.x+10;
-                    int x_width = boundingBox.width+150;
+                    int x_start = boundingBox.x - 160;
+                    int x_width = boundingBox.width + 150;
                     if (x_start + x_width >= rectified_left.cols) continue;
+                    if (x_start < 0) continue;
 
-                    Rect roi_match(x_start, circ_centre.y, x_width, 1); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                    Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                    roi_img = rectified_left(roi_match);
-                    template_img = rectified_right(roi_template);
-
-                    // resize(roi_img, roi_resized, Size(roi_img.cols*4, roi_img.rows), 0.0, 0.0, INTER_LINEAR);
-                    // resize(template_img, template_resized, Size(template_img.cols*4, template_img.rows), 0.0, 0.0, INTER_LINEAR);
-
-                    // TESTING
-                    // Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                    // Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                    // roi_img = rectified_left(roi_match);
-                    // template_img = rectified_right(roi_template);
+                    Rect roi_match(x_start, circ_centre.y, x_width, 1); 
+                    Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); 
+                    roi_img = rectified_right(roi_match);
+                    template_img = rectified_left(roi_template);
 
                     resize(roi_img, roi_resized, Size(roi_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
                     resize(template_img, template_resized, Size(template_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
                     
                     // Perform template matching
-                    // matchTemplate(roi_img, template_img, match_result, TM_SQDIFF_NORMED);
                     matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
                     minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);                    
 
-                    disparity = 10.0 + min_loc.x/16.0;
+                    disparity = 160.0 - min_loc.x/16.0;
                     depth_mm = focal_length_pixel * baseline_mm / disparity;
 
                     double xmm, ymm, zmm=depth_mm;
@@ -371,8 +370,8 @@ int main(int argc, char **argv) {
                     double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
                     
                     // Display stuff
-                    circle(rectified_left, Point(circ_centre.x+min_loc.x/16+10,circ_centre.y), 5, Scalar(255,0,0), FILLED);
-                    putText(rect_r_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
+                    circle(rectified_right, Point(circ_centre.x-disparity, circ_centre.y), 5, Scalar(255,0,0), FILLED);
+                    putText(rect_l_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
                     // auto end_custom = std::chrono::high_resolution_clock::now(); 
                     // auto duration_custom = std::chrono::duration_cast<std::chrono::microseconds>(end_custom - start_custom);
                     // custom_duration += duration_custom;
@@ -389,7 +388,7 @@ int main(int argc, char **argv) {
                     // kiwi_pub.publish(msg);
                     break;
                 }
-            }
+            }  
             
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -403,14 +402,14 @@ int main(int argc, char **argv) {
             // morph_duration += duration_morph;
 
 
-            imshow("Kiwi mask", opening);
-            imshow("Kiwi distances", rect_r_copy);
+            // imshow("Kiwi mask", opening);
+            // imshow("Kiwi distances", rect_l_copy);
 
-            imshow("Left rectified", rectified_left);
-            imshow("Right rectified", rectified_right);
+            // imshow("Left rectified", rectified_left);
+            // imshow("Right rectified", rectified_right);
 
-            key = waitKey(1);
-        }
+            // key = waitKey(1);
+        } 
 
         auto average_duration = total_duration / loops;
         std::cout << std::endl << "Average time: " << average_duration.count() << " us" << std::endl;

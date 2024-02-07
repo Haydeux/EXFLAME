@@ -6,7 +6,7 @@ inc_ros= $(shell pkg-config roscpp --cflags --libs) $(shell pkg-config std_msgs 
 all: local_stereo
 
 local_stereo: local_stereo.cpp
-	$(CC) -o local_stereo local_stereo.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
+	$(CC) -O2 -o local_stereo local_stereo.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
 
 .PHONY: clean
 clean:

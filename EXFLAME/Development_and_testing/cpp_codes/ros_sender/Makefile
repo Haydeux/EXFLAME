@@ -6,7 +6,7 @@ inc_ros= $(shell pkg-config roscpp --cflags --libs) $(shell pkg-config std_msgs 
 all: ros_sender
 
 ros_sender: ros_sender.cpp
-	$(CC) -o ros_sender ros_sender.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
+	$(CC) -O2 -o ros_sender ros_sender.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
 
 .PHONY: clean
 clean:
