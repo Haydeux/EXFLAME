@@ -1,3 +1,7 @@
+
+// 265 Hz with no image display
+
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudaimgproc.hpp>
@@ -22,12 +26,6 @@ using namespace Pylon;
 class Baslers {
     private:
         volatile bool* alive = nullptr;
-
-        // Prototypes
-        //int int_round(float val);
-        //void precalc_map(const Mat& input_x, const Mat& input_y, std::vector<int>& output_map);
-        //void remap_color(const Mat& input, Mat& output, std::vector<int>& map);
-        //void get_rectifier_maps(double a, Mat& map_left_x, Mat& map_left_y, Mat& map_right_x, Mat& map_right_y, Rect& roi_left, Rect& roi_right);
         
     public: 
         // Constructor
@@ -86,9 +84,6 @@ class Baslers {
 
             // Initialise some timers
             auto total_duration = std::chrono::microseconds(0);
-            // auto kiwi_duration = std::chrono::microseconds(0);
-            // auto custom_duration = std::chrono::microseconds(0);
-            // auto morph_duration = std::chrono::microseconds(0);
 
             const int hue_lower=15, hue_upper=38, sat_lower=130, sat_upper=255, val_lower=20, val_upper=230;
             const int radiusClose=0, radiusOpen=1; 
@@ -114,7 +109,7 @@ class Baslers {
 
             Mat roi_img, template_img, roi_resized, template_resized;
 
-            Mat rect_r_copy(480, 640, CV_8UC3);
+            Mat rect_l_copy(480, 640, CV_8UC3);
             Mat match_result;
 
             double min_val, max_val;
@@ -160,9 +155,9 @@ class Baslers {
 
                     // auto start_kiwi = std::chrono::high_resolution_clock::now();
                     
-                    rectified_right.copyTo(rect_r_copy);
-                    
-                    cvtColor(rectified_right, hsvImage, COLOR_BGR2HSV);
+                    rectified_left.copyTo(rect_l_copy);
+            
+                    cvtColor(rectified_left, hsvImage, COLOR_BGR2HSV);
                     inRange(hsvImage, lowerYellow, upperYellow, yellowMask);
                     
                     // auto start_morph = std::chrono::high_resolution_clock::now(); 
@@ -180,37 +175,28 @@ class Baslers {
                             Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
 
                             // Display stuff
-                            rectangle(rect_r_copy, boundingBox, Scalar(0, 255, 0), 2); 
-                            circle(rect_r_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
+                            rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
+                            circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
 
                             // Creates an roi to for horizontal sliding 
-                            int x_start = boundingBox.x+10;
-                            int x_width = boundingBox.width+150;
+                            int x_start = boundingBox.x - 160;
+                            int x_width = boundingBox.width + 150;
                             if (x_start + x_width >= rectified_left.cols) continue;
+                            if (x_start < 0) continue;
 
-                            Rect roi_match(x_start, circ_centre.y, x_width, 1); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                            Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                            roi_img = rectified_left(roi_match);
-                            template_img = rectified_right(roi_template);
-
-                            // resize(roi_img, roi_resized, Size(roi_img.cols*4, roi_img.rows), 0.0, 0.0, INTER_LINEAR);
-                            // resize(template_img, template_resized, Size(template_img.cols*4, template_img.rows), 0.0, 0.0, INTER_LINEAR);
-
-                            // TESTING
-                            // Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height); //Rect roi_match(x_start, boundingBox.y, x_width, boundingBox.height);
-                            // Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height); //Rect roi_template(boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height);
-                            // roi_img = rectified_left(roi_match);
-                            // template_img = rectified_right(roi_template);
+                            Rect roi_match(x_start, circ_centre.y, x_width, 1); 
+                            Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); 
+                            roi_img = rectified_right(roi_match);
+                            template_img = rectified_left(roi_template);
 
                             resize(roi_img, roi_resized, Size(roi_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
                             resize(template_img, template_resized, Size(template_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
                             
                             // Perform template matching
-                            // matchTemplate(roi_img, template_img, match_result, TM_SQDIFF_NORMED);
                             matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
                             minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);                    
 
-                            disparity = 10.0 + min_loc.x/16.0;
+                            disparity = 160.0 - min_loc.x/16.0;
                             depth_mm = focal_length_pixel * baseline_mm / disparity;
 
                             double xmm, ymm, zmm=depth_mm;
@@ -218,24 +204,18 @@ class Baslers {
                             ymm = zmm * (double)(240 - circ_centre.y) / 856.022388;
                             double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
                             
-                            // Display stuff
-                            circle(rectified_left, Point(circ_centre.x+min_loc.x/16+10,circ_centre.y), 5, Scalar(255,0,0), FILLED);
-                            putText(rect_r_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
-                            // auto end_custom = std::chrono::high_resolution_clock::now(); 
-                            // auto duration_custom = std::chrono::duration_cast<std::chrono::microseconds>(end_custom - start_custom);
-                            // custom_duration += duration_custom;
+
+                            // Display stuff **********************************************************************************************
+                            circle(rectified_right, Point(circ_centre.x-disparity, circ_centre.y), 5, Scalar(255,0,0), FILLED);
+                            putText(rect_l_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
 
 
-                            kiwiPosMsg.point.x = xmm/1000.0; 
-                            kiwiPosMsg.point.y = ymm/1000.0;  
-                            kiwiPosMsg.point.z = zmm/1000.0;  
+                            kiwiPosMsg.point.x = xmm / 1000.0; 
+                            kiwiPosMsg.point.y = ymm / 1000.0;  
+                            kiwiPosMsg.point.z = zmm / 1000.0;  
                             
                             kiwi_pub.publish(kiwiPosMsg);
-
-                            // ss << "x: " << xmm << " | y: " << ymm << " | z: " << zmm << " | d: " << distmm;
-                            // msg.data = ss.str();
-                            // kiwi_pub.publish(msg);
-                            break;
+                            break; // Dont bother checking the remaining contours, once one fruit is sent
                         }
                     }
                     
@@ -243,16 +223,10 @@ class Baslers {
                     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
                     total_duration += duration;
 
-                    // auto end_kiwi = std::chrono::high_resolution_clock::now();
-                    // auto duration_kiwi = std::chrono::duration_cast<std::chrono::microseconds>(end_kiwi - start_kiwi);
-                    // kiwi_duration += duration_kiwi;
 
-                    // auto duration_morph = std::chrono::duration_cast<std::chrono::microseconds>(end_morph - start_morph);
-                    // morph_duration += duration_morph;
-
-
+                    // Display stuff **********************************************************************************************
                     imshow("Kiwi mask", opening);
-                    imshow("Kiwi distances", rect_r_copy);
+                    imshow("Kiwi distances", rect_l_copy);
 
                     imshow("Left rectified", rectified_left);
                     imshow("Right rectified", rectified_right);
@@ -262,12 +236,6 @@ class Baslers {
 
                 auto average_duration = total_duration / loops;
                 std::cout << std::endl << "Average time: " << average_duration.count() << " us" << std::endl;
-                // auto average_kiwi = kiwi_duration / loops;
-                // std::cout << "Kiwi time: " << average_kiwi.count() << " us" << std::endl;
-                // auto average_morph = morph_duration / loops;
-                // std::cout << "Morph time: " << average_morph.count() << " us" << std::endl;
-                // auto average_custom = custom_duration / custom_loops;
-                // std::cout << "Custom timer: " << average_custom.count() << " us" << std::endl;
 
             } catch (const GenericException &e) {
                 std::cerr << "An exception occurred: " << e.GetDescription() << std::endl;
@@ -286,107 +254,10 @@ class Baslers {
             PylonTerminate(true);
             std::cout << "Program Ended" << std::endl;
 
-            return EXIT_SUCCESS; // Will be unable to return, corrupted stack and return address. Issue only caused on Jetson
+            return EXIT_SUCCESS; // Will be unable to return, corrupted stack and return address. Issue only occurs on Jetson 
         }
 
     private: 
-
-        // Rounds a float to the nearest integer
-        int int_round(float val) {
-            return (int)(val + 0.5 - (val<0));
-        }
-
-        /* Takes the two rectification maps (returned by initUndistortRectifyMap), one points to the x location, and the other points to the y.
-        * Computes a single map (lookup table), which points to the memory offset location of the pixel, instead of the x and y coordinates. 
-        * Note: was created in order to use the function below (remap_colour) correctly. */
-        void precalc_map(const Mat& input_x, const Mat& input_y, std::vector<int>& output_map) {
-            // Consistency check
-            CV_Assert(input_x.size() == input_y.size());
-            
-            // Allocate output memory
-            if (output_map.size() != (input_x.cols * input_x.rows)) {
-                output_map.resize((input_x.cols * input_x.rows));
-            }
-            
-            // Loop through the rectification map, calculating the memory offset of the pixel from the unrectified image
-            int idx=0;
-            for (int i=0; i<input_x.rows; i++) {
-                for (int j=0; j<input_x.cols; j++) {
-                    int y_coord = int_round(input_y.at<float>(i,j));
-                    int x_coord = int_round(input_x.at<float>(i,j));
-                    if ((x_coord < 0) || (x_coord >= input_x.cols) || (y_coord < 0) || (y_coord >= input_x.rows)) {
-                        output_map[idx] = -1;
-                    }
-                    else {
-                        output_map[idx] = y_coord*input_x.cols*3 + x_coord*3;
-                    }
-                    // std::cout << "x: " << x_coord << " | y: " << y_coord << " | addr: " << output_map[idx] << std::endl;
-                    idx++;
-                }
-            }
-
-            return;
-        }
-
-        /* Optimised remapping function which utilises a lookup table pointing to the pixel memory offset, which allows quicker computation.
-        * Also optimised to copy 
-        * Note: original code found at (https://trace.tennessee.edu/cgi/viewcontent.cgi?article=2196&context=utk_gradthes), minor modificaitons
-        * have been made to allow it to work on linux. */
-        void remap_color(const Mat& input, Mat& output, std::vector<int>& map) {
-            int chunksize = 24; // Equivalent to the number of threads created.
-            // Note: the number of pixels in the image must be divisible by this number, else it will create colour shifted bands on the image. 
-
-            // consistancy check
-            CV_Assert(input.isContinuous());
-            CV_Assert((input.cols * input.rows) == map.size());
-
-            // allocate output Mat memmory
-            if (input.size() != output.size()) {
-                output.release();
-                output.create(input.size(), input.type());
-            }
-
-            int chunk_width = map.size() * 3 / chunksize;
-            int map_width = map.size() / chunksize;
-            int max_addr_offset = map_width -1;
-
-            tbb::parallel_for(0, chunksize, [&](int chunk) {
-                int m;
-                int *mapptr = &(map[0]) + map_width * chunk;
-                uchar *data = output.data + chunk_width * chunk;
-                int *indata;
-                int *maxaddess = mapptr + max_addr_offset;   
-                for (; mapptr < maxaddess; mapptr++) {
-                    // Copies a 4-byte section of data (3 bytes for R,G,B, and 1 dummy byte)
-                    m = mapptr[0];
-                    if (m < 0) {
-                        *((int*)data) = 0;
-                    }
-                    else {
-                        indata = (int*)&(input.data[m]);
-                        *((int*)data) = *indata;
-                    }
-                    // Increments pointer by 3 bytes, to cause the dummy byte to be overwritten on the next loop
-                    data += 3;
-                }
-                // Copies the last 3 bytes individually, to avoid changing memory beyond what it should
-                m = *mapptr;
-                if (m < 0) {
-                    data[0] = 0;
-                    data[1] = 0;
-                    data[2] = 0;
-                }
-                else {
-                    indata = (int*)&(input.data[m]);
-                    data[0] = ((uchar*)indata)[0];
-                    data[1] = ((uchar*)indata)[1];
-                    data[2] = ((uchar*)indata)[2];
-                }
-            });
-
-            return;
-        }
-
         // Uses the camera parameters found from matlab calibration to create the rectification maps
         void get_rectifier_maps(double a, Mat& map_left_x, Mat& map_left_y, Mat& map_right_x, Mat& map_right_y, Rect& roi_left, Rect& roi_right) {
             // Create camera parameters
@@ -430,8 +301,119 @@ class Baslers {
                 Size(640, 480), CV_32FC1, map_right_x, map_right_y
             );
         }
-};
 
+        // Rounds a float to the nearest integer
+        int int_round(float val) {
+            return (int)(val + 0.5 - (val<0));
+        }
+
+        /* Takes the two rectification maps (returned by initUndistortRectifyMap), one points to the x location, and the other points to the y.
+         * Computes a single map (lookup table), which points to the memory offset location of the pixel, instead of the x and y coordinates in image. 
+         *
+         * Note: was created in order to use the function below (remap_colour) correctly. A breif description of what the function does was given in 
+         * (https://trace.tennessee.edu/cgi/viewcontent.cgi?article=2196&context=utk_gradthes) at section 4.2.1, but no code was provided.
+         * */
+        void precalc_map(const Mat& input_x, const Mat& input_y, std::vector<int>& output_map) {
+            // Consistency check, ensures that the mapping 
+            CV_Assert(input_x.size() == input_y.size());
+            
+            // Allocate output memory, if its not the correct size 
+            if (output_map.size() != (input_x.cols * input_x.rows)) {
+                output_map.resize((input_x.cols * input_x.rows));
+            }
+            
+            // Loop through the rectification map, calculating the memory offset of the pixel from the unrectified image
+            int idx=0;
+            for (int i=0; i<input_x.rows; i++) {
+                for (int j=0; j<input_x.cols; j++) {
+                    int y_coord = int_round(input_y.at<float>(i,j));
+                    int x_coord = int_round(input_x.at<float>(i,j));
+                    if ((x_coord < 0) || (x_coord >= input_x.cols) || (y_coord < 0) || (y_coord >= input_x.rows)) {
+                        output_map[idx] = -1;
+                    }
+                    else {
+                        output_map[idx] = y_coord*input_x.cols*3 + x_coord*3;
+                    }
+                    // std::cout << "x: " << x_coord << " | y: " << y_coord << " | addr: " << output_map[idx] << std::endl;
+                    idx++;
+                }
+            }
+
+            return;
+        }
+
+        /* Optimised remapping function which utilises a lookup table pointing to the pixel memory offset, which allows quicker computation.
+         * Also optimised to copy each byte of the RGB pixel simultaneously. This is achieved by casting to an int pointer to write 4 bytes at once,
+         * and then only shifting along 3 bytes in memory, so that the 4th byte (dummy byte) is overwritten.  
+         * Note: original code found at (https://trace.tennessee.edu/cgi/viewcontent.cgi?article=2196&context=utk_gradthes), minor modificaitons
+         * have been made to allow it to work on linux. 
+         * */
+        void remap_color(const Mat& input, Mat& output, std::vector<int>& map) {
+            int chunksize = 24; // Equivalent to the number of threads created.
+            // Note: the number of pixels in the image must be divisible by this number, else it will create colour shifted bands on the image. 
+
+            // Consistency check. Ensure the 
+            CV_Assert(input.isContinuous());
+            CV_Assert((input.cols * input.rows) == map.size());
+
+            // Allocate output image memmory, if its not the same size
+            if (input.size() != output.size()) {
+                output.release();
+                output.create(input.size(), input.type());
+            }
+
+            // Calculate the memory address ranges that each thread will use 
+            int chunk_width = map.size() * 3 / chunksize;
+            int map_width = map.size() / chunksize;
+            int max_addr_offset = map_width -1;
+
+            /* Begins the threads which apply the mapping transformation to the image.
+             * Each thread handles the memory lookup and copy of a given section of the image.
+             * The copy opperation makes use of the fact that an uchar pointer is 1 byte and an int pointer is 4 bytes. By 
+             * casting between the two types, it is able to copy 4 bytes in one operation, and then shift along 3 bytes to 
+             * replace the dummy one in the next operation (since the RGB pixel info is stored in 3 bytes, 1 byte for each 
+             * colour). This allows the copy operation to happen much quicker for colour images. See link above for more.  */
+            tbb::parallel_for(0, chunksize, [&](int chunk) {
+                int m;
+                int *mapptr = &(map[0]) + map_width * chunk; // Points to a array of integers. Each integer represents the memory offset of the current pixel
+                uchar *data = output.data + chunk_width * chunk; // Points to a matrix of bytes that make up the image. Each pixel is made of 3 sequential byes (RGB)
+                int *indata;
+                int *maxaddess = mapptr + max_addr_offset;   
+                for (; mapptr < maxaddess; ++mapptr) {
+                    // Copies a 4-byte section of data (3 bytes for R,G,B, and 1 dummy byte)
+                    m = mapptr[0];
+                    if (m < 0) { // If the pixel was out of range, set to 0
+                        *((int*)data) = 0; 
+                    }
+                    else { // Otherwise set the pixel to the correct value
+                        // indata = (int*)&(input.data[m]);
+                        // *((int*)data) = *indata;
+                        *((int*)data) = *((int*)&(input.data[m]));
+                    }
+                    // Increments pointer by 3 bytes, to cause the dummy byte to be overwritten on the next loop
+                    data += 3;
+                }
+
+                // Copies the last 3 bytes individually, to avoid changing memory beyond what it should
+                m = *mapptr;
+                if (m < 0) { // If the pixel was out of range, set to 0
+                    data[0] = 0;
+                    data[1] = 0;
+                    data[2] = 0;
+                }
+                else { // Otherwise set the pixel to the correct value
+                    indata = (int*)&(input.data[m]);
+                    data[0] = ((uchar*)indata)[0];
+                    data[1] = ((uchar*)indata)[1];
+                    data[2] = ((uchar*)indata)[2];
+                }
+            });
+
+            return;
+        }
+
+        
+};
 
 
 
@@ -450,8 +432,10 @@ int main(int argc, char **argv) {
     // Register signal handler for SIGINT
     std::signal(SIGINT, signalHandler);
 
-    Baslers bazzie(&keepRunning);
-    bazzie.main_program(); // Its unable to return from here due to errors on the jetson, cant do anything afterwards
+    Baslers camera_pair(&keepRunning);
+    camera_pair.main_program(); // Its unable to return from here due to errors on the jetson, cant do anything afterwards
     
+    // Never gets to here, when compiling and running on the jetson
+    std::cout << "Never reaches this print, due to return errors" << std::endl;
     return EXIT_SUCCESS; 
 }

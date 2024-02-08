@@ -6,7 +6,7 @@ inc_ros= $(shell pkg-config roscpp --cflags --libs) $(shell pkg-config std_msgs 
 all: baslers_class
 
 baslers_class: baslers_class.cpp
-	$(CC) -o baslers_class baslers_class.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
+	$(CC) -O2 -o baslers_class baslers_class.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
 
 .PHONY: clean
 clean:
