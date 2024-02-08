@@ -1,7 +1,9 @@
 
 /* 
  * Comile using O2 optimisation. It is about 1-2 Hz faster than O3 optimisation.
- * Gets approximately 267 Hz rate when not displaying images.
+ * Gets approximately 268 Hz rate when not displaying images.
+ * 
+ * This is significantly faster than no optimisation, at about 215 Hz
 */
 
 
@@ -343,7 +345,7 @@ int main(int argc, char **argv) {
                     rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
                     circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
 
-                    // Creates an roi to for horizontal sliding 
+                    // Creates an roi to for horizontal sliding
                     int x_start = boundingBox.x - 160;
                     int x_width = boundingBox.width + 150;
                     if (x_start + x_width >= rectified_left.cols) continue;
