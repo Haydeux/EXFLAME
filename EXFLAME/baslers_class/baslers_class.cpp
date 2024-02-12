@@ -1,8 +1,9 @@
 /* Title:       Baslers Class
  * Author:      Hayden Moxsom
- * Modified:    09/02/2024 (February 9th)
- * Description: to be written
- * 
+ * Modified:    12/02/2024 (February 12th)
+ * Description: A semi-class based implementation of the ros_sender code. This program connects to two basler cameras, performs rectification,
+ *              processes the image to extract a kiwifruit, performs stereo matching on this feature, and finally sends the position of the fruit
+ *              in mm relative to the camera through a ROS message.  
  * */
 
 
@@ -11,7 +12,7 @@
 
 // 265 Hz with no image display, about 110 Hz when displaying
 
-// Opencv library(s) (requires install. CUDA support is currently unused so entirely optional)
+// Opencv library(s) (requires install. CUDA support is currently unused, so its optional)
 #include <opencv2/opencv.hpp>
 // #include <opencv2/cudawarping.hpp>
 // #include <opencv2/cudaimgproc.hpp>
@@ -27,7 +28,7 @@
 #include <chrono>
 #include <sstream>
 
-// Threading library (believe this is installed by default)
+// Threading library (install using: 'sudo apt install libtbb-dev'. See oneAPI threading building blocks (oneTBB))
 #include <tbb/parallel_for.h>
 
 // Ros libraries (requires install. Currently using ros noetic)
@@ -52,7 +53,7 @@ class Baslers {
     public: 
         // Constructor
         Baslers(volatile bool* alive) { 
-            m_alive = alive;
+            m_alive = alive; // A pointer to a bool flag that gets chnaged by the signal handler, for stopping the program saftely
         }
         
         // Destructor
@@ -75,8 +76,8 @@ class Baslers {
             const double baseline = 0.03316; // meters
             const double baseline_mm = baseline * 1000.0; // mm
 
-            // Initialise the ros node and message
-            int argc = 0;
+            // Initialise the ros node, message publisher, and message container
+            int argc = 0; // Placeholder to pass to the ros init() method
             ros::init(argc, nullptr, "kiwi_sender");
             ros::NodeHandle kiwi_n;
             ros::Publisher kiwi_pub = kiwi_n.advertise<geometry_msgs::PointStamped>("FLAME/KiwiPos", 1);
@@ -105,39 +106,41 @@ class Baslers {
             CInstantCamera camera_right(tlFactory.CreateDevice(devices[1])); // SN: 24810503 on right
             // Note: devices are always ordered with the lowest Serial Number (SN) first.
 
-            // Initialise some variables
+            // Initialise a timer #########################################################################
             auto total_duration = std::chrono::microseconds(0);
 
+            // Constant parameters for creating the mask of the kiwifruit
             const int hue_lower=15, hue_upper=38, sat_lower=130, sat_upper=255, val_lower=20, val_upper=230;
             const int radiusClose=0, radiusOpen=1; 
             const int minAreaThreshold=350; 
 
+            // Create the HSV yellow range
             const Scalar lowerYellow(hue_lower, sat_lower, val_lower);
             const Scalar upperYellow(hue_upper, sat_upper, val_upper);
 
+            // Create the opening and closing kernels, for filtering the mask
             const Mat kernel_c = getStructuringElement(MORPH_ELLIPSE, Size(2*radiusClose+1, 2*radiusClose+1));
             const Mat kernel_o = getStructuringElement(MORPH_ELLIPSE, Size(2*radiusOpen+1, 2*radiusOpen+1));
-
+            
+            // Initialise a container for the raw data of the captured image
             CGrabResultPtr grabResultRight, grabResultLeft;
 
-            Mat leftImage(480, 640, CV_8UC1);
-            Mat rightImage(480, 640, CV_8UC1);
-
+            // Initialise Matrices for storing processed images (most operations can't be done in place, so require new variables)
+            Mat leftImage(480, 640, CV_8UC1), rightImage(480, 640, CV_8UC1);
             Mat color_left_image(480, 640, CV_8UC3), color_right_image(480, 640, CV_8UC3);
             Mat rectified_left(480, 640, CV_8UC3), rectified_right(480, 640, CV_8UC3);
             
-            Mat hsvImage(480, 640, CV_8UC3), yellowMask;
-            Mat closing, opening;
+            // Initiliase variables necessary for extracting the kiwifruit from the images
+            Mat hsvImage(480, 640, CV_8UC3), yellowMask, closing, opening;
             std::vector<std::vector<Point>> contours;
 
-            Mat roi_img, template_img, roi_resized, template_resized;
+            // Initialise some matrices for storing the template matching images
+            Mat roi_img, template_img, roi_resized, template_resized, match_result;
 
+#if DISPLAY_IMAGES == 1
+            // Initialise a variable for holding a copy of the image. For display purposes only ***********************************************
             Mat rect_l_copy(480, 640, CV_8UC3);
-            Mat match_result;
-
-            double min_val, max_val;
-            Point min_loc, max_loc;
-            double disparity, depth_mm;
+#endif
 
             // Main loop starting
             std::cout << "Program starting" << std::endl;
@@ -164,13 +167,14 @@ class Baslers {
                     camera_left.RetrieveResult(500, grabResultLeft, TimeoutHandling_ThrowException);
                     if (grabResultLeft->GrabSucceeded()) {
                         leftImage.data = static_cast<uchar*>(grabResultLeft->GetBuffer());
-                    }
+                    } else continue; // If no image was captured, skip this loop
+                    
                     
                     // Grab and retrieve images from camera_right
                     camera_right.RetrieveResult(500, grabResultRight, TimeoutHandling_ThrowException);
                     if (grabResultRight->GrabSucceeded()) {
                         rightImage.data = static_cast<uchar*>(grabResultRight->GetBuffer());
-                    }
+                    } else continue; // If no image was captured, skip this loop
 
                     // Record the time that the images were captured at, to be sent in the ros message
                     kiwiPosMsg.header.stamp = ros::Time::now();
@@ -205,23 +209,23 @@ class Baslers {
                     // Sort through all the found contours
                     for (const auto& contour : contours) {
                         // Check that the area is big enough to be a valid detection
-                        double area = contourArea(contour);
+                        const double area = contourArea(contour);
                         if (area > minAreaThreshold) { 
                             // Create a rectangle around the detected fruit and find its centre
-                            Rect boundingBox = boundingRect(contour);
-                            Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
+                            const Rect boundingBox = boundingRect(contour);
+                            const Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
                             
                             // Calculates the horizontal region in which to search for a matching kiwifruit 
-                            int x_start = boundingBox.x - 160;
-                            int x_width = boundingBox.width + 150;
+                            const int x_start = boundingBox.x - 160;
+                            const int x_width = boundingBox.width + 150;
                             // Check if the region is within the bounds of the image, skipping it if its not valid
                             if (x_start + x_width >= rectified_left.cols) continue;
                             if (x_start < 0) continue;
 
                             // Crop the images to the region of interest to be used for template matching. 
                             // Takes a 1 pixel horizontal slice from the centre of the region, as it majorly increases speed at very little cost to accuracy 
-                            Rect roi_match(x_start, circ_centre.y, x_width, 1); // Slice of the region to search in for a match
-                            Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); // Slice of detected kiwifruit
+                            const Rect roi_match(x_start, circ_centre.y, x_width, 1); // Slice of the region to search in for a match
+                            const Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); // Slice of detected kiwifruit
 
                             // Crop the images, the left into just the detected kiwifruit, the right into the region to search for a match
                             roi_img = rectified_right(roi_match);
@@ -233,18 +237,18 @@ class Baslers {
                             
                             // Perform template matching
                             matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
-                            minMaxLoc(match_result, &min_val, &max_val, &min_loc, &max_loc);                    
+                            Point min_loc;
+                            minMaxLoc(match_result, nullptr, nullptr, &min_loc, nullptr);                    
 
                             // Convert the disparity back into the correct scale
-                            disparity = 160.0 - min_loc.x/16.0;
+                            const double disparity = 160.0 - min_loc.x/16.0;
 
                             // Calculate the depth in mm -- Change to try Q matrix
-                            depth_mm = focal_length_pixel * baseline_mm / disparity;
+                            const double zmm = focal_length_pixel * baseline_mm / disparity;
                             // Change the position from pixel to mm -- Change this to try using the Q matrix (potentially more accurate)
-                            double xmm, ymm, zmm=depth_mm;
-                            xmm = zmm * (double)(circ_centre.x - 320) / 854.189844;
-                            ymm = zmm * (double)(240 - circ_centre.y) / 856.022388;
-                            double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
+                            const double xmm = zmm * (double)(circ_centre.x - 320) / 854.189844;
+                            const double ymm = zmm * (double)(240 - circ_centre.y) / 856.022388;
+                            const double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
                             
 #if DISPLAY_IMAGES == 1     
                             // Display stuff - box around fruit and centre dot ***************************************************************************
@@ -352,11 +356,11 @@ class Baslers {
             // Compute the rectification maps
             initUndistortRectifyMap(
                 intrinsics_left, distortion_left, R1, P1,
-                Size(640, 480), CV_32FC1, map_left_x, map_left_y
+                Size(640, 480), CV_32F, map_left_x, map_left_y
             );
             initUndistortRectifyMap(
                 intrinsics_right, distortion_right, R2, P2,
-                Size(640, 480), CV_32FC1, map_right_x, map_right_y
+                Size(640, 480), CV_32F, map_right_x, map_right_y
             );
 
             return 0; // Successful 
@@ -385,7 +389,7 @@ class Baslers {
             // Loop through the rectification map, calculating the memory offset of the pixel from the unrectified image
             int idx=0;
             for (int i=0; i<input_x.rows; i++) { // Rows first due to row major order 
-                for (int j=0; j<input_x.cols; j++) {
+                for (int j=0; j<input_x.cols; j++) { // Columns
                     // At location (i, j) in the rectified image, determine the nearest corresponding pixel (x, y) from the raw image
                     int y_coord = int_round(input_y.at<float>(i,j));
                     int x_coord = int_round(input_x.at<float>(i,j));
@@ -478,7 +482,7 @@ class Baslers {
 
 
 
-
+// Flag indicating if the program has been issued a stop command
 volatile bool keepRunning = true;
 
 // Signal handler function
@@ -493,8 +497,10 @@ int main(int argc, char **argv) {
     // Register signal handler for SIGINT
     std::signal(SIGINT, signalHandler);
 
+    // Instatiate the baslers class, pointing to the shutdown flag
     Baslers camera_pair(&keepRunning);
 
+    // Begin the main camera loop
     camera_pair.main_program(); // Its unable to return from here due to errors on the jetson, cant do anything afterwards
     
     // Never gets to here, when compiling and running on the jetson
