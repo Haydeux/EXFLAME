@@ -9,8 +9,9 @@ This is intended to used on the canopy, to control the shaking. The control box 
 # Setup  
 To ensure it is possible to connect to the Mduino, connect both the control box and the computer to an unmanaged switch. Enter the network settings in the computer and configure the switch connection to set a static IP address, as per the images below. The identity and security are not important, so long as the MAC address of the computer is not `DE:AD:BE:EF:FE:ED`. If it is, change it to any unique identifier of the form `XX:XX:XX:XX:XX:XX`, where `X` is replaced with any of `0-9` and `A-F`.
 
-The IPv4 must be set to manual, as the unmanaged switch can not automatically assign it. Set the address to be of the form `192.168.1.XXX`, where `XXX` is any number from `2-255` apart from `102`. Set the netmask to be `255.255.255.0`, the gateway as `192.168.1.1`, and the DNS as `192.168.1.1`. 
+The IPv4 must be set to manual, as the unmanaged switch can not automatically assign it. Set the address to be of the form `192.168.1.XXX`, where `XXX` is any number from `2-255` apart from `102`. Set the netmask to be `255.255.255.0`, the gateway as `192.168.1.1`, and the DNS as `192.168.1.1`.   
 ![Set IPv4 method to manual, with the IP: 192.168.1.52, the netmask: 255.255.255.0, the gateway: 192.168.1.1, and the DNS: 192.168.1.1](ipv4_settings.png)  
+
 Set the IPv6 to disabled, as it is not needed for connecting to the Mduino, and can not be automatically assigned by an unmanaged switch. 
 ![Disable IPv6 for connection settings](ipv6_settings.png)  
 
