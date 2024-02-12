@@ -46,15 +46,20 @@ rosdep update
 ```
 
 # Running
+Before compiling this program the `DISPLAY_IMAGES` flag, located at the top of the program, can be changed. It is currently set to 1, but can be set to 0 or 1. Setting to 0 removes the image display, while setting to 1 allows the image display. No images runs faster, but is difficult for testing or debugging.  
+
 To compile this program, navigate to the directory its located in and then run the commad:
 ```bash
 make
-```
+```  
+
 Once compiled it can be run from the same directoy using the command:
 ```bash
 ./baslers_class
 ```
-Or by specifiying the path to the executable (i.e. if its within the baslers_class folder it must be specified using `.../baslers_class/baslers_class`) e.g.:
+
+Or by specifiying the path to the executable (i.e. if its within the baslers_class folder it must be specified using `.../baslers_class/baslers_class`) e.g.:  
 ```bash 
 ~/path/to/executable/baslers_class
-```
+```  
+

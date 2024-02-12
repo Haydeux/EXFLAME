@@ -6,9 +6,8 @@
  *              in mm relative to the camera through a ROS message.  
  * */
 
-
-
-// Currently just ros_sender method inside a class... Needs work to make it a proper class at some point. May not be worth the change though
+#define DISPLAY_IMAGES 1    // Set 1 to see the images, set 0 for no images
+                            // Runs about 110 Hz with images, about 265 Hz with no images
 
 // 265 Hz with no image display, about 110 Hz when displaying
 
@@ -39,11 +38,6 @@
 // Namespaces for opencv (cv) and pylon cameras (Pylon)
 using namespace cv;
 using namespace Pylon;
-
-
-
-#define DISPLAY_IMAGES 1    // Set 1 to see the images, set 0 for no images
-                            // Runs about 110 Hz with images, about 265 Hz with no images
 
 
 class Baslers {

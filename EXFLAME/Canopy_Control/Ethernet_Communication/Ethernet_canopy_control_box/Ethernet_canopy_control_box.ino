@@ -5,7 +5,7 @@
  * 				This is intended to be used in conjunction with the Ethernet_canopy_control_GUI.py
  * 				program, but can also be used with telnet connection. See USER INTRUCTIONS (line 11).
  * 				This code is intended to be uploaded onto the Mduino, inside the canopy control 
- * 				box. Some options can be adjusted before uploading (see SETUP OPTIONS on line 39).
+ * 				box. Some options can be adjusted before uploading (see SETUP OPTIONS on line 48).
  */
 
 /*///////////// USER INSTRUCTIONS //////////////////////////////////////
