@@ -9,4 +9,6 @@ This is used on the control box to control the canopy. The code uses serial comm
 
 
 # FLAME ROS Package
-This is the important section. It currently has not been ported to the EXFLAME directory.
+This is the important section. It currently has not been ported to the EXFLAME directory. 
+
+This part is the fruit tracking and motion prediction stuff.

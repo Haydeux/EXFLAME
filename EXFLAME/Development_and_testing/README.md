@@ -13,4 +13,5 @@ Earlier codes while still learning, before switching to implement in C++. Also h
 Code used to learn and test how ethernet communication worked, before implementing in the [ethernet version of the canopy control code](../Canopy_Control/Ethernet_Communication).
 
 ## Camera_Calibration
-Early camera calibration results from matlab
+Early camera calibration results from matlab and other useful parts associated with the calibration.
+
