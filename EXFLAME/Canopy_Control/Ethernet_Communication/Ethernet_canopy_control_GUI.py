@@ -8,6 +8,7 @@
  *              sending command messages to the arduino across ethernet.
 '''
 
+# Used python version 3.8.10
 
 # Imports
 import wx                       # "wxPython" module. Version 4.2.1 was used and works. (Other versions are untested but should work)

@@ -6,18 +6,26 @@ Description: A semi-class based implementation of the ros_sender code. This prog
 
 # Prerequisites 
 To compile and run this program, the following dependencies are required:  
- - [Threading Building Blocks (TBB)](https://en.wikipedia.org/wiki/Threading_Building_Blocks)
- - [OpenCV](https://opencv.org/)
- - [Pylon Camera Software Suite](https://www2.baslerweb.com/en/downloads/software-downloads/) 
- - [ROS](https://www.ros.org/)  
+ - g++ - Version 4:9.3.0-1ubuntu2 was used.  
+ - [Threading Building Blocks (TBB)](https://en.wikipedia.org/wiki/Threading_Building_Blocks) - Version 2020.1-2 was used.
+ - [OpenCV](https://opencv.org/) - Version 4.6.0 was used.
+ - [Pylon Camera Software Suite](https://www2.baslerweb.com/en/downloads/software-downloads/) - Version 7.4.0 was used. 
+ - [ROS](https://www.ros.org/) - Distribution [noetic](http://wiki.ros.org/noetic) was used.
 
 ### Installation Steps for Linux Ubuntu
 For other systems, search the respective website for instructions.  
-To install TBB, run the command:   
+
+To install g++, run  the terminal command:
+```bash
+sudo apt install g++
+```
+
+To install TBB, run the terminal command:   
 ```bash 
 sudo apt install libtbb-dev
 ```
-To install OpenCV run the following for the basic install. This is from the [installation](https://docs.opencv.org/4.x/d7/d9f/tutorial_linux_install.html) page, see there for other options:
+If installing OpenCV on the Jetson, use the script available from [here (file + instructions)](https://forums.developer.nvidia.com/t/best-way-to-install-opencv-with-cuda-on-jetpack-5-xavier-nx-opencv-for-tegra/222777) or [here (source code)](https://github.com/AastaNV/JEP/blob/master/script/install_opencv4.6.0_Jetson.sh).  
+For other devices, to install OpenCV run the following in a terminal for the basic install. This is from the [installation](https://docs.opencv.org/4.x/d7/d9f/tutorial_linux_install.html) page, see there for other options:
 ```bash 
 sudo apt update && sudo apt install -y cmake g++ wget unzip
 wget -O opencv.zip https://github.com/opencv/opencv/archive/4.x.zip
@@ -33,7 +41,7 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/example/existing/lib:/opt/pylon/lib
 To install ROS, follow the instructions available on the [installation page](http://wiki.ros.org/ROS/Installation). A summary of the commands is included here:
 ```bash
 sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
-sudo apt install curl # if you haven't already installed curl
+sudo apt install curl 
 curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
 sudo apt update
 sudo apt install ros-noetic-desktop
