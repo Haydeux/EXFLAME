@@ -1,8 +1,10 @@
-# Overview
-Title: Baslers Class  
+# Baslers Class   
 Author: Hayden Moxsom  
-Last Modified: 12/02/24 (February 12th)  
-Description: A semi-class based implementation of the ros_sender code. This program connects to two basler cameras, performs rectification, processes the image to extract a kiwifruit, performs stereo matching on this feature, and finally sends the position of the fruit in mm relative to the camera through a ROS message. 
+Date: 12th February 2024
+
+### Description 
+A semi-class based implementation of the ros_sender code. This program connects to two basler cameras, performs rectification, processes the image to extract a kiwifruit, performs stereo matching on this feature, and finally sends the position of the fruit in mm relative to the camera through a ROS message. 
+
 
 # Prerequisites 
 To compile and run this program, the following dependencies are required:  
@@ -35,7 +37,7 @@ cmake ../opencv-4.x
 cmake --build .
 ```
 To install the Pylon Camera Software Suite download the correct installer for your system from the [pylon downloads](https://www2.baslerweb.com/en/downloads/software-downloads/) and follow the instructions (for the Jetson, get the ARM 64 version). The pylon libraries may need to be added to PATH. This can be done by adding `/opt/pylon/lib` to the `export LD_LIBRARY_PATH=` line in the `.bashrc` file. An example of this is shown below:
-```
+```sh
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/example/existing/lib:/opt/pylon/lib
 ```
 To install ROS, follow the instructions available on the [installation page](http://wiki.ros.org/ROS/Installation). A summary of the commands is included here:
@@ -61,13 +63,18 @@ To compile this program, navigate to the directory its located in and then run t
 make
 ```  
 
-Once compiled it can be run from the same directoy using the command:
+Once compiled, first launch the ROS master node in a seperate terminal using the command:
+```bash
+roscore
+``` 
+
+The baslers program can then be run from the same directoy as when compiling, using the terminal command:
 ```bash
 ./baslers_class
 ```
-
 Or by specifiying the path to the executable (i.e. if its within the baslers_class folder it must be specified using `.../baslers_class/baslers_class`) e.g.:  
 ```bash 
 ~/path/to/executable/baslers_class
 ```  
 
+To exit the program. If images are being displayed, select any image and press `Esc`. It no images are displayed, select the terminal that started the program and press `Ctrl + c` (this also works when images are displayed).

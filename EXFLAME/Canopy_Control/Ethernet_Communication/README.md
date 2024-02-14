@@ -7,7 +7,7 @@ This is intended to used on the canopy, to control the shaking. The control box 
 
 
 # Setup  
-To ensure it is possible to connect to the Mduino, connect both the control box and the computer to an unmanaged switch. Enter the network settings in the computer and configure the switch connection to set a static IP address, as per the images below. The identity and security are not important, so long as the MAC address of the computer is not `DE:AD:BE:EF:FE:ED`. If it is, change it to any unique identifier of the form `XX:XX:XX:XX:XX:XX`, where `X` is replaced with any of `0-9` and `A-F`.
+To ensure it is possible to connect to the Mduino, connect both the control box and the computer to an unmanaged switch, using an ethernet cable. Enter the network settings in the computer and configure the switch connection to set a static IP address, as per the images below. The identity and security are not important, so long as the MAC address of the computer is not `DE:AD:BE:EF:FE:ED`. If it is, change it to any unique identifier of the form `XX:XX:XX:XX:XX:XX`, where `X` is replaced with any of `0-9` and `A-F`.
 
 The IPv4 must be set to manual, as the unmanaged switch can not automatically assign it. Set the address to be of the form `192.168.1.XXX`, where `XXX` is any number from `2-255` apart from `102`. Set the netmask to be `255.255.255.0`, the gateway as `192.168.1.1`, and the DNS as `192.168.1.1`.   
 ![Set IPv4 method to manual, with the IP: 192.168.1.52, the netmask: 255.255.255.0, the gateway: 192.168.1.1, and the DNS: 192.168.1.1](ipv4_settings.png?raw=true)  
@@ -38,6 +38,20 @@ Then wxPython can be installed using:
 ```bash
 pip3 install wxPython
 ```
+
+### Running 
+Simply run the `Ethernet_canop_control_GUI.py` program in your prefered python interpreter. If running on the Jetson use VS Code or run the terminal command `/usr/bin/python3 /home/geri/Documents/EXFLAME/Canopy_Control/Ethernet_canopy_control_GUI.py`. A GUI, like the one shown below, should appear.   
+
+![alt](canopy_GUI.png?raw=true)   
+
+To control the motors, first press the `Unlock` button to allow changing the values. Enter the desired frequency (Hz), by typing in the text box or by using the `+` and `-` buttons. Then click `Apply`, to send the targets to the canopy. The `Encoder readings` column, is the measured frequency (Hz) of the motors.    
+  
+The `Stop` button will immediately stop both motors. Closing the window/program (recommend using the `x` in the top right) will stop the motors and disconnect from the canopy. The `Advanced` button is an artifact left over from the serial communication version; It does not serve much purpose in the ethernet version, but may be reimplemented at a later point.  
+  
+The column on the right side shows the expected motion profile of the canopy, once target values are entered. The dot represents where it currently is in this motion. An example is shown below.  
+
+![](canopy_GUI_example.png?raw=true)  
+Note: due to some changes in the way the ethernet version works, it may not follow this expected motion quite as well as it should. This may need fixing at a later point, but is not critical.
 
 
 # Ethernet Canopy Control Box

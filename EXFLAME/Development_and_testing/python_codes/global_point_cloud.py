@@ -1,4 +1,14 @@
 #!/usr/bin/env python
+
+# Sends a 3D point cloud message. To visualise, launch rosviz.
+# this can be done using the command 'rosrun rviz rviz'.
+# Once open, press the add button, then select by topic. 
+# From here, find the /point_cloud topic (expand if its not 
+# already) and select the PointCloud2 type beneath it and
+# click ok.  
+# Expand the PointCloud2 type, then change the channel name 
+# to 'z' to make visualisation easier.
+
 import cv2 as cv
 import numpy as np
 from time import perf_counter

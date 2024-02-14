@@ -5,6 +5,11 @@ This project is adjusted and continued on from the FLAME project, as the overall
 
 
 # EXFLAME
+See the [EXFLAME/README.md](EXFLAME/README.md) for details on the programs, the prerequisites, and usage instructions.  
+
+Currently, EXFLAME mainly consists of code for running a pair of basler cameras and code for the control box. This is primarily the work of Hayden Moxsom over the period of the 2023-2024 C trimeseter.  
+
+This work mainly involved reasearching, testing, and implementation of a fast stereo matching algortihm for a new pair of cameras, the design and build of a control box for the canopy, and the programming of the control box logic and communication (required learning ethernet communication).  
 
 
 # FLAME
