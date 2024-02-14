@@ -42,7 +42,7 @@ pip3 install wxPython
 ### Running 
 Simply run the `Ethernet_canop_control_GUI.py` program in your prefered python interpreter. If running on the Jetson use VS Code or run the terminal command `/usr/bin/python3 /home/geri/Documents/EXFLAME/Canopy_Control/Ethernet_canopy_control_GUI.py`. A GUI, like the one shown below, should appear.   
 
-![alt](canopy_GUI.png?raw=true)   
+![Appearance of GUI application for controlling the canopy](canopy_GUI.png?raw=true)   
 
 To control the motors, first press the `Unlock` button to allow changing the values. Enter the desired frequency (Hz), by typing in the text box or by using the `+` and `-` buttons. Then click `Apply`, to send the targets to the canopy. The `Encoder readings` column, is the measured frequency (Hz) of the motors.    
   
@@ -50,7 +50,7 @@ The `Stop` button will immediately stop both motors. Closing the window/program 
   
 The column on the right side shows the expected motion profile of the canopy, once target values are entered. The dot represents where it currently is in this motion. An example is shown below.  
 
-![](canopy_GUI_example.png?raw=true)  
+![GUI application with example values entered, showcasing the predicted motion profile](canopy_GUI_example.png?raw=true)  
 Note: due to some changes in the way the ethernet version works, it may not follow this expected motion quite as well as it should. This may need fixing at a later point, but is not critical.
 
 
