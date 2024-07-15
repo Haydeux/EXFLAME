@@ -82,7 +82,6 @@ class Baslers {
             ros::init(argc, nullptr, "image_sender");
             ros::NodeHandle nh;
             ros::Publisher image_pub = nh.advertise<sensor_msgs::Image>("image_topic", 1);
-            sensor_msgs::ImagePtr image_msg;
 
             // Initialise the camera software
             PylonInitialize();
@@ -197,7 +196,7 @@ class Baslers {
 #endif
                     
                     //ros send
-                    image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", rectified_left).toImageMsg();
+                    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", rectified_left).toImageMsg();
                     image_pub.publish(image_msg);
 
                     //ros recieve
