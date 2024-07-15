@@ -16,7 +16,6 @@
 // #include <opencv2/cudawarping.hpp>
 // #include <opencv2/cudaimgproc.hpp>
 // #include <opencv2/cudafilters.hpp>
-#include <cv_bridge/cv_bridge.h>
 
 // Pylon cameras library (requires install alongside Pylon Camera Software Suite)
 #include <pylon/PylonIncludes.h>
@@ -27,15 +26,18 @@
 #include <cstdlib>
 #include <chrono>
 #include <sstream>
+#include <thread>
 
 // Threading library (install using: 'sudo apt install libtbb-dev'. See oneAPI threading building blocks (oneTBB))
 #include <tbb/parallel_for.h>
 
 // Ros libraries (requires install. Currently using ros noetic)
 #include <ros/ros.h> 
+#include <cv_bridge/cv_bridge.h>
 #include <std_msgs/String.h>
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/Polygon.h>
 
 // Namespaces for opencv (cv) and pylon cameras (Pylon)
 using namespace cv;
@@ -45,6 +47,8 @@ using namespace Pylon;
 class Baslers {
     private:
         volatile bool* m_alive = nullptr; // Safetly stops the program through a ctrl+C press
+        volatile bool recieved_rectangles = false;
+        std::vector<std::vector<geometry_msgs::Point32>> rectangles_list;
         
     public: 
         // Constructor
@@ -74,14 +78,18 @@ class Baslers {
 
             // Initialise the ros node, message publisher, and message container
             int argc = 0; // Placeholder to pass to the ros init() method
-            ros::init(argc, nullptr, "kiwi_sender");
+            ros::init(argc, nullptr, "image_processor");
+
             ros::NodeHandle kiwi_n;
             ros::Publisher kiwi_pub = kiwi_n.advertise<geometry_msgs::PointStamped>("FLAME/KiwiPos", 1);
             geometry_msgs::PointStamped kiwiPosMsg;
 
-            ros::init(argc, nullptr, "image_sender");
-            ros::NodeHandle nh;
-            ros::Publisher image_pub = nh.advertise<sensor_msgs::Image>("image_topic", 1);
+            ros::NodeHandle image_n;
+            ros::Publisher image_pub = image_n.advertise<sensor_msgs::Image>("image_topic", 1, false);
+
+            ros::NodeHandle rect_n;
+            ros::Subscriber rect_sub = rect_n.subscribe("polygons_topic", 1, &Baslers::polygonCallback, this);
+
 
             // Initialise the camera software
             PylonInitialize();
@@ -197,78 +205,78 @@ class Baslers {
                     
                     //ros send
                     sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", rectified_left).toImageMsg();
+                    image_msg->header.stamp = ros::Time::now();
                     image_pub.publish(image_msg);
 
-                    //ros recieve
-/*                   
+                    while (ros::ok() && !recieved_rectangles) {
+                        ros::spinOnce();
+                    }
+                    recieved_rectangles = false;
+                   
                     // Sort through all the found contours
-                    for (const auto& contour : contours) {
-                        // Check that the area is big enough to be a valid detection
-                        const double area = contourArea(contour);
-                        if (area > minAreaThreshold) { 
-                            // Create a rectangle around the detected fruit and find its centre
-                            const Rect boundingBox = boundingRect(contour);
-                            const Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
-                            
-                            // Calculates the horizontal region in which to search for a matching kiwifruit 
-                            const int x_start = boundingBox.x - 160;
-                            const int x_width = boundingBox.width + 150;
-                            // Check if the region is within the bounds of the image, skipping it if its not valid
-                            if (x_start + x_width >= rectified_left.cols) continue;
-                            if (x_start < 0) continue;
+                    for (const auto& rectang : rectangles_list) {
+                        // Create a rectangle around the detected fruit and find its centre
+                        const Rect boundingBox(int(rectang[0].x), int(rectang[0].y), int(rectang[1].x-rectang[0].x), int(rectang[1].y-rectang[0].y)); 
+                        const Point circ_centre(boundingBox.x+boundingBox.width/2, boundingBox.y+boundingBox.height/2);
+                        
+                        // Calculates the horizontal region in which to search for a matching kiwifruit 
+                        const int x_start = boundingBox.x - 160;
+                        const int x_width = boundingBox.width + 150;
+                        // Check if the region is within the bounds of the image, skipping it if its not valid
+                        if (x_start + x_width >= rectified_left.cols) continue;
+                        if (x_start < 0) continue;
 
-                            // Crop the images to the region of interest to be used for template matching. 
-                            // Takes a 1 pixel horizontal slice from the centre of the region, as it majorly increases speed at very little cost to accuracy 
-                            const Rect roi_match(x_start, circ_centre.y, x_width, 1); // Slice of the region to search in for a match
-                            const Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); // Slice of detected kiwifruit
+                        // Crop the images to the region of interest to be used for template matching. 
+                        // Takes a 1 pixel horizontal slice from the centre of the region, as it majorly increases speed at very little cost to accuracy 
+                        const Rect roi_match(x_start, circ_centre.y, x_width, 1); // Slice of the region to search in for a match
+                        const Rect roi_template(boundingBox.x, circ_centre.y, boundingBox.width, 1); // Slice of detected kiwifruit
 
-                            // Crop the images, the left into just the detected kiwifruit, the right into the region to search for a match
-                            roi_img = rectified_right(roi_match);
-                            template_img = rectified_left(roi_template);
+                        //std::cout << x_start <<" | "<< circ_centre.y <<" | "<< x_width << std::endl;
 
-                            // Stretch the image to be 16 times as wide. Intended to allow for sub-pixel accuracy. Not sure how well it works
-                            resize(roi_img, roi_resized, Size(roi_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
-                            resize(template_img, template_resized, Size(template_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
-                            
-                            // Perform template matching
-                            matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
-                            Point min_loc;
-                            minMaxLoc(match_result, nullptr, nullptr, &min_loc, nullptr);                    
+                        // Crop the images, the left into just the detected kiwifruit, the right into the region to search for a match
+                        roi_img = rectified_right(roi_match);
+                        template_img = rectified_left(roi_template);
 
-                            // Convert the disparity back into the correct scale
-                            const double disparity = 160.0 - min_loc.x/16.0;
+                        // Stretch the image to be 16 times as wide. Intended to allow for sub-pixel accuracy. Not sure how well it works
+                        resize(roi_img, roi_resized, Size(roi_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
+                        resize(template_img, template_resized, Size(template_img.cols*16, 1), 0.0, 0.0, INTER_LINEAR);
+                        
+                        // Perform template matching
+                        matchTemplate(roi_resized, template_resized, match_result, TM_SQDIFF_NORMED);
+                        Point min_loc;
+                        minMaxLoc(match_result, nullptr, nullptr, &min_loc, nullptr);                    
 
-                            // Calculate the depth in mm -- Change to try Q matrix
-                            const double zmm = focal_length_pixel * baseline_mm / disparity;
-                            // Change the position from pixel to mm -- Change this to try using the Q matrix (potentially more accurate)
-                            const double xmm = zmm * (double)(circ_centre.x - 320) / 854.189844;
-                            const double ymm = zmm * (double)(240 - circ_centre.y) / 856.022388;
-                            const double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
-                            
+                        // Convert the disparity back into the correct scale
+                        const double disparity = 160.0 - min_loc.x/16.0;
+
+                        // Calculate the depth in mm -- Change to try Q matrix
+                        const double zmm = focal_length_pixel * baseline_mm / disparity;
+                        // Change the position from pixel to mm -- Change this to try using the Q matrix (potentially more accurate)
+                        const double xmm = zmm * (double)(circ_centre.x - 320) / 854.189844;
+                        const double ymm = zmm * (double)(240 - circ_centre.y) / 856.022388;
+                        const double distmm = sqrt((pow(xmm,2) + pow(ymm,2) + pow(zmm,2)));
+                        
 #if DISPLAY_IMAGES == 1     
-                            // Display stuff - box around fruit and centre dot ***************************************************************************
-                            rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
-                            circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
-                            // Display stuff, detected circle and distance text **********************************************************************************************
-                            circle(rectified_right, Point(circ_centre.x-disparity, circ_centre.y), 5, Scalar(255,0,0), FILLED);
-                            putText(rect_l_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
-                            // vertical and horizontal 'ruler' lines at fruit centre  *******************************************************************
-                            line(rect_l_copy, Point(circ_centre.x, 0), Point(circ_centre.x, 479), Scalar(255,0,0), 1); // Vertical line
-                            line(rect_l_copy, Point(0, circ_centre.y), Point(639, circ_centre.y), Scalar(255,0,0), 1); // Horizontal line
+                        // Display stuff - box around fruit and centre dot ***************************************************************************
+                        rectangle(rect_l_copy, boundingBox, Scalar(0, 255, 0), 2); 
+                        circle(rect_l_copy, circ_centre, 5, Scalar(255,0,0), FILLED);
+                        // Display stuff, detected circle and distance text **********************************************************************************************
+                        circle(rectified_right, Point(circ_centre.x-disparity, circ_centre.y), 5, Scalar(255,0,0), FILLED);
+                        putText(rect_l_copy, std::to_string(distmm), Point(boundingBox.x,boundingBox.y), FONT_HERSHEY_PLAIN, 2, Scalar(255,0,0), 2);
+                        // vertical and horizontal 'ruler' lines at fruit centre  *******************************************************************
+                        line(rect_l_copy, Point(circ_centre.x, 0), Point(circ_centre.x, 479), Scalar(255,0,0), 1); // Vertical line
+                        line(rect_l_copy, Point(0, circ_centre.y), Point(639, circ_centre.y), Scalar(255,0,0), 1); // Horizontal line
 #endif
 
-                            // Convert the measurements into metres for the ros message
-                            kiwiPosMsg.point.x = xmm / 1000.0; 
-                            kiwiPosMsg.point.y = ymm / 1000.0;  
-                            kiwiPosMsg.point.z = zmm / 1000.0;  
-                            
-                            // Publish the ros message
-                            kiwi_pub.publish(kiwiPosMsg);
-
-                            break; // Dont bother checking the remaining contours, once one fruit is sent -- May be best to send all and make some decision on which to target
-                        }
+                        // Convert the measurements into metres for the ros message
+                        kiwiPosMsg.point.x = xmm / 1000.0; 
+                        kiwiPosMsg.point.y = ymm / 1000.0;  
+                        kiwiPosMsg.point.z = zmm / 1000.0;  
+                        
+                        // Publish the ros message
+                        kiwi_pub.publish(kiwiPosMsg);
                     }
-                    */
+
                     // Calculate loop time taken ######################################################################################
                     auto end = std::chrono::high_resolution_clock::now();
                     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -276,8 +284,7 @@ class Baslers {
                     
 #if DISPLAY_IMAGES == 1
                     // Display stuff **********************************************************************************************
-                    //imshow("Kiwi mask", opening);
-                    //imshow("Kiwi distances", rect_l_copy);
+                    imshow("Kiwi distances", rect_l_copy);
                     imshow("Left rectified", rectified_left);
                     imshow("Right rectified", rectified_right);
                     key = waitKey(1);
@@ -470,6 +477,24 @@ class Baslers {
             }); // End parallel_for
 
             return 0; // Successful
+        }
+
+        void polygonCallback(const geometry_msgs::Polygon::ConstPtr& msg) {
+            //std::cout << "rects recieved" << std::endl;
+            std::vector<std::vector<geometry_msgs::Point32>> rectangles;
+            std::vector<geometry_msgs::Point32> current_rectangle;
+
+            for (size_t i = 0; i < msg->points.size(); ++i) {
+                current_rectangle.push_back(msg->points[i]);
+                if ((i + 1) % 2 == 0) { // Every 2 points make a rectangle
+                    rectangles.push_back(current_rectangle);
+                    current_rectangle.clear();
+                }
+            }
+            
+            rectangles_list = rectangles;
+            recieved_rectangles = true;
+            //std::cout << "rects processed" << std::endl;
         }
 
         
