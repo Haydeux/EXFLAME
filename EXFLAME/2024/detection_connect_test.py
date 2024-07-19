@@ -17,6 +17,7 @@ import time
 import signal
 
 
+
 def start_process(executable_file):
     return subprocess.Popen(
         executable_file,
@@ -88,7 +89,11 @@ def main():
     print("Program ended")
 
 
+
 def prediction_callback(data):
+    if not hasattr(prediction_callback, "latency_counter"):
+        prediction_callback.latency_counter = 0
+        prediction_callback.latency_avg = 0
     global polygons_pub
     bridge = CvBridge()
     try:
@@ -97,8 +102,10 @@ def prediction_callback(data):
 
         send_time = data.header.stamp
         receive_time = rospy.Time.now()
-        latency = receive_time - send_time
-        print(f"\rlatency: {latency.to_sec()*1000:.3f} ms     ", end="")
+        latency = round((receive_time - send_time).to_sec() * 1000, 3) 
+        prediction_callback.latency_counter = prediction_callback.latency_counter + 1
+        prediction_callback.latency_avg = prediction_callback.latency_avg + latency
+        print(f"\rlatency: {latency:.3f} ms  |  Avg = {prediction_callback.latency_avg/prediction_callback.latency_counter:.3f} ms     ", end="")
         
         # Display the image using OpenCV
         cv.imshow("Received Image", cv_image)

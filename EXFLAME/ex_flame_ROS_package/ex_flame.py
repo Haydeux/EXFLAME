@@ -16,6 +16,13 @@ from geometry_msgs.msg import PointStamped
 
 import rtdeState
 
+# Real Sense
+from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Pose
+from cv_bridge import CvBridge
+from std_msgs.msg import Header
+
 
 # Defines the interface to launch the baslers C++ program
 class baslers:
@@ -362,3 +369,190 @@ class ur_five:
                 if (tcp[1] < pose_time):
                     self.actual_tcp = tcp[0]
                     break
+
+
+# Defining the camera in hand input and image processing object
+class realsense:
+    ### BASIC INTERFACING ###
+    # Connecting up all the internals and turning it on
+    def turn_on(self):
+        # Waiting for camera intrinsics to be sent
+        K_matrix = rospy.wait_for_message('/camera/aligned_depth_to_color/camera_info', CameraInfo).K
+
+        # Storing the entrinsics for future calculations
+        self.x_focal = K_matrix[0]
+        self.y_focal = K_matrix[4]
+        self.x_centre = K_matrix[2]
+        self.y_centre = K_matrix[5]
+
+        # Starting up all the ROS subscribers of the image streams
+        self.depth_sub = rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", Image, self.process_depth, queue_size = 1)
+        self.image_sub = rospy.Subscriber("/camera/color/image_raw", Image, self.process_image, queue_size = 1)
+
+        # Starting up all the ROS publishers for outputing the kiwifruit point
+        self.position_pub = rospy.Publisher("/flame/realsense_positions", PoseArray, queue_size = 1)
+
+        self.on = True
+
+    # Shutting it down elegantly 
+    def turn_off(self):
+        # Disconnecting all the cables
+        self.depth_sub.unregister()
+        self.image_sub.unregister()
+
+        self.on = False
+
+    ### INITIALISATION ###
+    # Initialise the default values of the HSV filter
+    def __init__(self, fruit = True):
+        # Initialising the image processing values
+        self.bridge = CvBridge()
+
+        # Changing the way that the realsense perceives position depending on target type
+        if fruit:
+            self.target_depth = 25
+            self.hsv_ranges = [(15, 80, 0), (25, 255, 255)]
+        else:
+            self.target_depth = 0
+            self.hsv_ranges = [(20, 80, 40), (35, 255, 255)]
+
+        # The expected delay of capturing an image
+        self.delay = 0.034
+
+    # Load in the YOLO model
+    def load_yolo(self):
+        # Importing the machine learning stuff
+        from ultralytics import YOLO
+
+        self.fruit_detector = YOLO("flame_fake_kiwifruit.pt")
+
+    ### IMAGE PROCESSING ###
+    # Extracting a fruit image positions using thresholding
+    def extract_fruit(self, frame):
+        # Converting the image to HSV and extracting kiwifruit
+        frame_hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        frame_mask = cv.inRange(frame_hsv, self.hsv_ranges[0], self.hsv_ranges[1])
+
+        # cv.imshow("one", frame_mask)
+        # cv.waitKey(1)
+
+        # Applying some morphological filters
+        kernel_open = cv.getStructuringElement(cv.MORPH_ELLIPSE, [5, 5])
+        kernel_close = cv.getStructuringElement(cv.MORPH_ELLIPSE, [23, 23])
+
+        frame_mask = cv.morphologyEx(frame_mask, cv.MORPH_OPEN, kernel_open)
+        frame_mask = cv.morphologyEx(frame_mask, cv.MORPH_CLOSE, kernel_close)
+
+        # Finding the contours of the potential fruit
+        contours, heirarchy = cv.findContours(frame_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        frame_mask = cv.drawContours(frame_mask, contours, -1, 127, 3)
+
+        fruits = []
+
+        # Test if the contours are large enough
+        for contour in contours:
+            if cv.contourArea(contour) > 400:
+                # Do position calculations if it is
+                m = cv.moments(contour)
+                cx = int(m["m10"] / m["m00"])
+                cy = int(m["m01"] / m["m00"])
+
+                fruits.append([cx, cy])
+
+        return fruits
+
+    # Extract the fruit from the target image except using YOLO
+    def extract_fruit_yolo(self, frame):
+        results = self.fruit_detector.predict(frame, save=False, show=False, conf=0.2, imgsz = (448, 256), boxes = False)
+
+        fruits = []
+
+        for fruit in results[0].boxes:
+            cx = int((fruit.xyxy[0][2] + fruit.xyxy[0][0]) / 2)
+            cy = int((fruit.xyxy[0][3] + fruit.xyxy[0][1]) / 2)
+
+        fruits.append([cx, cy])
+
+        return fruits
+
+    # Converting an image position to a cartesian position
+    def image_to_realsense(self, image_position) -> Point:
+        # Returning the error for the control system to deal with
+        position = Point()
+
+        # Doing the calculations to locate the 3D position of a given pixel on the image
+        position.z = 0.001 * self.get_depth(image_position)
+        position.x = 0.001 * float((image_position[0] - self.x_centre) * position.z * 1000) / self.x_focal
+        position.y = 0.001 * float((image_position[1] - self.y_centre) * position.z * 1000) / self.y_focal
+
+        return position
+    
+    # Given a point on the image the average depth of the neighborhood will be found and offset applied
+    def get_depth(self, image_position) -> float:
+        # Defining the boundaries of the area of extraction
+        sample_radius = 5
+
+        x_min = image_position[1] - sample_radius
+        x_max = image_position[1] + sample_radius
+        y_min = image_position[0] - sample_radius
+        y_max = image_position[0] + sample_radius
+
+        # Extracting and copying a data segment from the current depth image
+        depth_segment = np.copy(self.depth_image[x_min:x_max, y_min:y_max])
+
+        # Finding the number of valid readings in the depth segment
+        num_readings = sum(sum(sum([depth_segment != 0])))
+        
+        # Getting the average reading of the depth segment excluding zeros
+        depth_reading = sum(sum(depth_segment)) / num_readings
+
+        # Adding on 25 mm to get the approximate centre of the kiwifruit
+        depth_reading += self.target_depth
+
+        return depth_reading
+  
+    ### CALLBACKS ###
+    # Save the most recent depth image into a variable
+    def process_depth(self, data):
+        self.depth_image = self.bridge.imgmsg_to_cv2(data)
+
+    # Processing an RGB image when received
+    def process_image(self, data):
+        # Recording the time prior to any preprocessing
+        image_time = time.time() - self.delay
+
+        # Formatting the time for the header object
+        header = Header()
+        header.stamp.secs = int(image_time)
+        header.stamp.nsecs = int((image_time % 1) * 10 ** 9)
+
+        # Converting the received image and extracting the fruit from it
+        image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+        fruits = self.extract_fruit(image)
+
+        # Converting the image position of the fruit to a spacial position
+        fruit_poses = []
+
+        if fruits is not None:
+            for fruit in fruits:
+                # Displaying the fruit on the image
+                cv.circle(image, (fruit[0], fruit[1]), 3, (255, 0, 255), -1)
+
+                # Saving the fruit poses
+                fruit_pose = Pose()
+                fruit_pose.position = self.image_to_realsense(fruit)
+                fruit_poses.append(fruit_pose)
+
+        cv.imshow("window", image)
+        cv.waitKey(1)
+
+        fruit = PoseArray()
+        fruit.header = header
+        fruit.poses = fruit_poses
+
+        # Publishing all the fruit poses that were identified
+        self.position_pub.publish(fruit)
+  
+
+
+# END

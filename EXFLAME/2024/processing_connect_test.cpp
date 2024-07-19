@@ -370,7 +370,7 @@ class Baslers {
 
         // Rounds a float to the nearest integer
         int int_round(float val) {
-            return (int)(val + 0.5 - (val<0));
+            return int(val + 0.5 - (val<0));
         }
 
         /* Takes the two rectification maps (returned by initUndistortRectifyMap), one points to the x location, and the other points to the y.
