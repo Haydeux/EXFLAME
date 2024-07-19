@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
-
 import cv2 as cv
 import numpy as np
 
+import os
+import subprocess
+import signal
 import time
 import math
 import threading
@@ -16,23 +18,30 @@ from geometry_msgs.msg import PointStamped
 
 import rtdeState
 
-# Real Sense
-from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import Pose
-from cv_bridge import CvBridge
-from std_msgs.msg import Header
-
 
 # Defines the interface to launch the baslers C++ program
 class baslers:
     def __init__(self):
+        self.program_dir = "/home/geri/Documents/EXFLAME/Git_clone/EXFLAME/2024/detection_connect_test.py"
         self.on = False
 
     def turn_on(self):
+        self.process = subprocess.run(['gnome-terminal', '--', '/usr/bin/python3', self.program_dir])
+        #time.sleep(10)
         self.on = True
     
-    def turn_off(self): 
+    def turn_off(self):
+        # try:
+        #     #self.process.send_signal(signal.SIGINT)
+        #     ps_output = subprocess.check_output(['ps', 'aux'])
+        #     lines = ps_output.decode().split('\n')
+        #     for line in lines:
+        #         if 'python3 script2.py' in line:
+        #             pid = int(line.split()[1])
+        #             os.kill(pid, signal.SIGINT)
+        #             break
+        # except:
+        #     print("already off") 
         self.on = False
 
 
@@ -45,16 +54,16 @@ class ur_five:
         self.on = True
         
         # Connecting to the realtime data exchange
-        self.rtde = rtdeState.RtdeState('192.168.10.20', 'rtdeCommand.xml')
+        self.rtde = rtdeState.RtdeState('192.168.10.20', '/home/geri/Documents/EXFLAME/Git_clone/EXFLAME/ex_flame_ROS_package/rtdeCommand.xml')
         self.rtde.initialize()
 
         # Start the stream that publishes the position of the target
-        self.position_pub = rospy.Publisher("flame/perceived_position", PointStamped, queue_size = 1)
-        self.error_pub = rospy.Publisher("flame/position_error", Point, queue_size = 1)
+        self.position_pub = rospy.Publisher("xflame/perceived_position", PointStamped, queue_size = 1)
+        self.error_pub = rospy.Publisher("xflame/position_error", Point, queue_size = 1)
 
         # Starting the workflow of predicted position to RTDE
-        self.target_sub = rospy.Subscriber("/flame/predicted_position", Point, self.upload_pose)
-        self.fruits_sub = rospy.Subscriber("/flame/realsense_positions", PoseArray, self.servo_realsense)
+        self.target_sub = rospy.Subscriber("xflame/predicted_position", Point, self.upload_pose)
+        self.fruits_sub = rospy.Subscriber("xflame/baslers_positions", PoseArray, self.servo_baslers)
 
         # Start the thread to record the TCP poses of the UR5
         tcp_recorder = threading.Thread(target = self.record_tcp)
@@ -63,10 +72,13 @@ class ur_five:
     # Turn off the ur_five object
     def turn_off(self):
         # Disconnecting all the cables
-        self.position_pub.unregister()
-        self.error_pub.unregister()
-        self.target_sub.unregister()
-        self.fruits_sub.unregister()
+        try:
+            self.position_pub.unregister()
+            self.error_pub.unregister()
+            self.target_sub.unregister()
+            self.fruits_sub.unregister()
+        except:
+            print("already off")
         
         self.on = False
 
@@ -147,7 +159,7 @@ class ur_five:
         if (position.y < -0.6) or (position.y > 0.6): #change to 0.7?
             print("Position out of range y")
             return
-        if position.z > 0.64: #change to 0.75?
+        if position.z > 0.7: #change to 0.75?
             print("Position out of range z")
             print(position.z)
             return
@@ -418,104 +430,8 @@ class ur_five:
                     break
 
 
-# Defining the camera in hand input and image processing object
-class realsense:
-    ### BASIC INTERFACING ###
-    # Connecting up all the internals and turning it on
-    def turn_on(self):
-        # Waiting for camera intrinsics to be sent
-        K_matrix = rospy.wait_for_message('/camera/aligned_depth_to_color/camera_info', CameraInfo).K
 
-        # Storing the entrinsics for future calculations
-        self.x_focal = K_matrix[0]
-        self.y_focal = K_matrix[4]
-        self.x_centre = K_matrix[2]
-        self.y_centre = K_matrix[5]
 
-        # Starting up all the ROS subscribers of the image streams
-        self.depth_sub = rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", Image, self.process_depth, queue_size = 1)
-        self.image_sub = rospy.Subscriber("/camera/color/image_raw", Image, self.process_image, queue_size = 1)
-
-        # Starting up all the ROS publishers for outputing the kiwifruit point
-        self.position_pub = rospy.Publisher("/flame/realsense_positions", PoseArray, queue_size = 1)
-
-        self.on = True
-
-    # Shutting it down elegantly 
-    def turn_off(self):
-        # Disconnecting all the cables
-        self.depth_sub.unregister()
-        self.image_sub.unregister()
-
-        self.on = False
-
-    ### INITIALISATION ###
-    # Initialise the default values of the HSV filter
-    def __init__(self, fruit = True):
-        # Initialising the image processing values
-        self.bridge = CvBridge()
-
-        # Changing the way that the realsense perceives position depending on target type
-        if fruit:
-            self.target_depth = 25
-            self.hsv_ranges = [(15, 80, 0), (25, 255, 255)]
-        else:
-            self.target_depth = 0
-            self.hsv_ranges = [(20, 80, 40), (35, 255, 255)]
-
-        # The expected delay of capturing an image
-        self.delay = 0.034
-
-    # Converting an image position to a cartesian position
-    def image_to_realsense(self, image_position) -> Point:
-        # Returning the error for the control system to deal with
-        position = Point()
-
-        # Doing the calculations to locate the 3D position of a given pixel on the image
-        position.z = 0.001 * self.get_depth(image_position)
-        position.x = 0.001 * float((image_position[0] - self.x_centre) * position.z * 1000) / self.x_focal
-        position.y = 0.001 * float((image_position[1] - self.y_centre) * position.z * 1000) / self.y_focal
-
-        return position
-    
-
-    # Processing an RGB image when received
-    def process_image(self, data):
-        # Recording the time prior to any preprocessing
-        image_time = time.time() - self.delay
-
-        # Formatting the time for the header object
-        header = Header()
-        header.stamp.secs = int(image_time)
-        header.stamp.nsecs = int((image_time % 1) * 10 ** 9)
-
-        # Converting the received image and extracting the fruit from it
-        image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        fruits = self.extract_fruit(image)
-
-        # Converting the image position of the fruit to a spacial position
-        fruit_poses = []
-
-        if fruits is not None:
-            for fruit in fruits:
-                # Displaying the fruit on the image
-                cv.circle(image, (fruit[0], fruit[1]), 3, (255, 0, 255), -1)
-
-                # Saving the fruit poses
-                fruit_pose = Pose()
-                fruit_pose.position = self.image_to_realsense(fruit)
-                fruit_poses.append(fruit_pose)
-
-        cv.imshow("window", image)
-        cv.waitKey(1)
-
-        fruit = PoseArray()
-        fruit.header = header
-        fruit.poses = fruit_poses
-
-        # Publishing all the fruit poses that were identified
-        self.position_pub.publish(fruit)
-  
 # Defining an object that takes a stream of timestamped positions and predicts the next position
 # Note: it does not make any predictions yet
 class motion_estimator:
@@ -531,8 +447,11 @@ class motion_estimator:
     # Closing down the system cleanly
     def turn_off(self):
         # Disconnecting all the cables
-        self.point_pub.unregister()
-        self.point_sub.unregister()
+        try:
+            self.point_pub.unregister()
+            self.point_sub.unregister()
+        except:
+            print("already off")    
 
         self.on = False
 
@@ -553,6 +472,5 @@ class motion_estimator:
         self.point_pub.publish(predicted_point)
 
 
-rob_arm = ur_five()
-rob_arm.baslers_to_tcp(Point(0.03,0.02,0.3))
-# END
+
+# END OF FILE

@@ -15,6 +15,10 @@ from geometry_msgs.msg import Polygon, Point32
 import subprocess
 import time
 import signal
+import sys
+
+
+
 
 
 
@@ -48,6 +52,7 @@ def scale_image(img, scale=100):
 
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
+print(cur_dir)
 y10_path = os.path.join(cur_dir, 'best.pt')
 engine_path = os.path.join(cur_dir, 'best.engine')
 
@@ -61,8 +66,6 @@ model_y10 = YOLOv10(y10_path, task='detect')
 tensorrt_model = YOLOv10(engine_path, task='detect')
 
 
-
-
 def main():
     global polygons_pub
     process_path = os.path.join(cur_dir, 'processing_connect_test')
@@ -71,8 +74,8 @@ def main():
 
     rospy.init_node('image_detector', anonymous=True)
 
-    image_sub = rospy.Subscriber("image_topic", Image, prediction_callback, queue_size=1)
-    polygons_pub = rospy.Publisher('polygons_topic', Polygon, queue_size=1)
+    image_sub = rospy.Subscriber("xflame/baslers_image", Image, prediction_callback, queue_size=1)
+    polygons_pub = rospy.Publisher('xflame/bounding_boxes', Polygon, queue_size=1)
 
     print("begin subprocess")
     process = start_process(process_path)

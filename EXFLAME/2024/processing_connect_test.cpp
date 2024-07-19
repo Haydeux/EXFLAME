@@ -36,8 +36,9 @@
 #include <cv_bridge/cv_bridge.h>
 #include <std_msgs/String.h>
 #include <sensor_msgs/Image.h>
-#include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/Polygon.h>
+#include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/Pose.h>
 
 // Namespaces for opencv (cv) and pylon cameras (Pylon)
 using namespace cv;
@@ -81,14 +82,13 @@ class Baslers {
             ros::init(argc, nullptr, "image_processor");
 
             ros::NodeHandle kiwi_n;
-            ros::Publisher kiwi_pub = kiwi_n.advertise<geometry_msgs::PointStamped>("FLAME/KiwiPos", 1);
-            geometry_msgs::PointStamped kiwiPosMsg;
-
+            ros::Publisher pose_array_pub = kiwi_n.advertise<geometry_msgs::PoseArray>("xflame/baslers_positions", 1);
+            
             ros::NodeHandle image_n;
-            ros::Publisher image_pub = image_n.advertise<sensor_msgs::Image>("image_topic", 1, false);
+            ros::Publisher image_pub = image_n.advertise<sensor_msgs::Image>("xflame/baslers_image", 1, false);
 
             ros::NodeHandle rect_n;
-            ros::Subscriber rect_sub = rect_n.subscribe("polygons_topic", 1, &Baslers::polygonCallback, this);
+            ros::Subscriber rect_sub = rect_n.subscribe("xflame/bounding_boxes", 1, &Baslers::polygonCallback, this);
 
 
             // Initialise the camera software
@@ -185,7 +185,8 @@ class Baslers {
                     } else continue; // If no image was captured, skip this loop
 
                     // Record the time that the images were captured at, to be sent in the ros message
-                    kiwiPosMsg.header.stamp = ros::Time::now();
+                    geometry_msgs::PoseArray pose_array;
+                    pose_array.header.stamp = ros::Time::now();
 
                     // Convert from bayer BG colour scheme to RGB colour
                     cvtColor(leftImage, color_left_image, COLOR_BayerBG2RGB);
@@ -212,7 +213,7 @@ class Baslers {
                         ros::spinOnce();
                     }
                     recieved_rectangles = false;
-                   
+
                     // Sort through all the found contours
                     for (const auto& rectang : rectangles_list) {
                         // Create a rectangle around the detected fruit and find its centre
@@ -266,16 +267,22 @@ class Baslers {
                         // vertical and horizontal 'ruler' lines at fruit centre  *******************************************************************
                         line(rect_l_copy, Point(circ_centre.x, 0), Point(circ_centre.x, 479), Scalar(255,0,0), 1); // Vertical line
                         line(rect_l_copy, Point(0, circ_centre.y), Point(639, circ_centre.y), Scalar(255,0,0), 1); // Horizontal line
-#endif
+#endif                  
 
                         // Convert the measurements into metres for the ros message
-                        kiwiPosMsg.point.x = xmm / 1000.0; 
-                        kiwiPosMsg.point.y = ymm / 1000.0;  
-                        kiwiPosMsg.point.z = zmm / 1000.0;  
-                        
-                        // Publish the ros message
-                        kiwi_pub.publish(kiwiPosMsg);
+                        geometry_msgs::Pose pose;
+                        pose.position.x = xmm * 0.001;
+                        pose.position.y = ymm * 0.001;
+                        pose.position.z = zmm * 0.001;
+                        pose.orientation.x = 0.0;
+                        pose.orientation.y = 0.0;
+                        pose.orientation.z = 0.0;
+                        pose.orientation.w = 1.0;
+                        pose_array.poses.push_back(pose);
                     }
+
+                    // Publish the PoseArray message
+                    pose_array_pub.publish(pose_array);
 
                     // Calculate loop time taken ######################################################################################
                     auto end = std::chrono::high_resolution_clock::now();
