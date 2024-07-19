@@ -88,6 +88,10 @@ class ur_five:
 
         # The offset of the RGB realsense camera and the TCP
         self.realsense_offset = [-0.215, 0.0, -0.055]
+        self.baslers_offset = [0.055, 0.0175, 0.0425]
+        self.baslers_rotation = [[ 0, -1,  0],
+                                 [-1,  0,  0],
+                                 [ 0,  0,  1]]
 
         # Defining the desired distance from the TCP for fruit and flowers
         if fruit:
@@ -137,13 +141,13 @@ class ur_five:
         target[2] = position.z
 
         # If any of the movement limits are violated do not upload the target
-        if (position.x < 0.2) or (position.x > 0.84):
+        if (position.x < 0.2) or (position.x > 0.84): #change?
             print("Position out of range x")
             return
-        if (position.y < -0.6) or (position.y > 0.6):
+        if (position.y < -0.6) or (position.y > 0.6): #change to 0.7?
             print("Position out of range y")
             return
-        if position.z > 0.64:
+        if position.z > 0.64: #change to 0.75?
             print("Position out of range z")
             print(position.z)
             return
@@ -158,7 +162,7 @@ class ur_five:
         if (rotation.y < -0.6) or (rotation.y > 0.6):
             print("Rotation out of range y")
             return
-        if (rotation.y < -0.6) or (rotation.y > 0.6):
+        if (rotation.z < -0.6) or (rotation.z > 0.6):
             print("Rotation out of range z")
             return
 
@@ -312,6 +316,22 @@ class ur_five:
 
         return transformed_point
 
+    # Converts a coordinate given relative to the baslers to a coordinate relative to the TCP
+    def baslers_to_tcp(self, point: Point) -> Point:
+        # Apply the baslers rotation matrix to the point
+        rotated_point = np.dot(np.array(self.baslers_rotation), np.array([point.x, point.y, point.z]))
+        
+        # Apply the baslers translation offset to the point
+        translated_point = rotated_point + np.array(self.baslers_offset)
+
+        # Applying a translation to account for the desired TCP offset
+        transformed_point = Point()
+        transformed_point.x = translated_point[0] - self.tcp_offset[0]
+        transformed_point.y = translated_point[1] - self.tcp_offset[1]
+        transformed_point.z = translated_point[2] - self.tcp_offset[2]
+
+        return transformed_point
+    
     # Takes the position relative to the nerian and converts it to global coordinates
     def nerian_to_base(self, point: Point) -> Point:
         position = Point()
@@ -337,6 +357,33 @@ class ur_five:
         for target in targets.poses:
             # Comparing the distance from the TCP to the fruit
             position = self.realsense_to_tcp(target.position)
+            error = abs(position.x) + abs(position.y) + abs(position.z)
+
+            # Calculating if this is a minimum reading and saving it if it is
+            if error < min_error:
+                best = position
+                min_error = error
+
+        # Calculating the global position of the kiwifruit
+        best_position = self.tcp_to_base(best)
+
+        # Publish the closest position to the motion estimator
+        self.publish_position(best_position, image_time)
+
+    # Given a list of candidate targets relative to the baslers, determines the position of the closest target and the global coordinates
+    def servo_baslers(self, targets: PoseArray) -> None:
+        # Declaring the time when the image was captured
+        image_time = float(targets.header.stamp.secs) + float(targets.header.stamp.nsecs) / (10 ** 9)
+
+        # Updates the pose values of the UR5 and realsense
+        self.update_pose(image_time)
+
+        min_error = 10
+        
+        # Convert all the targets to TCP coordinates and evaluate the best one according to distance from the TCP
+        for target in targets.poses:
+            # Comparing the distance from the TCP to the fruit
+            position = self.baslers_to_tcp(target.position)
             error = abs(position.x) + abs(position.y) + abs(position.z)
 
             # Calculating if this is a minimum reading and saving it if it is
@@ -419,62 +466,6 @@ class realsense:
         # The expected delay of capturing an image
         self.delay = 0.034
 
-    # Load in the YOLO model
-    def load_yolo(self):
-        # Importing the machine learning stuff
-        from ultralytics import YOLO
-
-        self.fruit_detector = YOLO("flame_fake_kiwifruit.pt")
-
-    ### IMAGE PROCESSING ###
-    # Extracting a fruit image positions using thresholding
-    def extract_fruit(self, frame):
-        # Converting the image to HSV and extracting kiwifruit
-        frame_hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-        frame_mask = cv.inRange(frame_hsv, self.hsv_ranges[0], self.hsv_ranges[1])
-
-        # cv.imshow("one", frame_mask)
-        # cv.waitKey(1)
-
-        # Applying some morphological filters
-        kernel_open = cv.getStructuringElement(cv.MORPH_ELLIPSE, [5, 5])
-        kernel_close = cv.getStructuringElement(cv.MORPH_ELLIPSE, [23, 23])
-
-        frame_mask = cv.morphologyEx(frame_mask, cv.MORPH_OPEN, kernel_open)
-        frame_mask = cv.morphologyEx(frame_mask, cv.MORPH_CLOSE, kernel_close)
-
-        # Finding the contours of the potential fruit
-        contours, heirarchy = cv.findContours(frame_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-        frame_mask = cv.drawContours(frame_mask, contours, -1, 127, 3)
-
-        fruits = []
-
-        # Test if the contours are large enough
-        for contour in contours:
-            if cv.contourArea(contour) > 400:
-                # Do position calculations if it is
-                m = cv.moments(contour)
-                cx = int(m["m10"] / m["m00"])
-                cy = int(m["m01"] / m["m00"])
-
-                fruits.append([cx, cy])
-
-        return fruits
-
-    # Extract the fruit from the target image except using YOLO
-    def extract_fruit_yolo(self, frame):
-        results = self.fruit_detector.predict(frame, save=False, show=False, conf=0.2, imgsz = (448, 256), boxes = False)
-
-        fruits = []
-
-        for fruit in results[0].boxes:
-            cx = int((fruit.xyxy[0][2] + fruit.xyxy[0][0]) / 2)
-            cy = int((fruit.xyxy[0][3] + fruit.xyxy[0][1]) / 2)
-
-        fruits.append([cx, cy])
-
-        return fruits
-
     # Converting an image position to a cartesian position
     def image_to_realsense(self, image_position) -> Point:
         # Returning the error for the control system to deal with
@@ -487,34 +478,6 @@ class realsense:
 
         return position
     
-    # Given a point on the image the average depth of the neighborhood will be found and offset applied
-    def get_depth(self, image_position) -> float:
-        # Defining the boundaries of the area of extraction
-        sample_radius = 5
-
-        x_min = image_position[1] - sample_radius
-        x_max = image_position[1] + sample_radius
-        y_min = image_position[0] - sample_radius
-        y_max = image_position[0] + sample_radius
-
-        # Extracting and copying a data segment from the current depth image
-        depth_segment = np.copy(self.depth_image[x_min:x_max, y_min:y_max])
-
-        # Finding the number of valid readings in the depth segment
-        num_readings = sum(sum(sum([depth_segment != 0])))
-        
-        # Getting the average reading of the depth segment excluding zeros
-        depth_reading = sum(sum(depth_segment)) / num_readings
-
-        # Adding on 25 mm to get the approximate centre of the kiwifruit
-        depth_reading += self.target_depth
-
-        return depth_reading
-  
-    ### CALLBACKS ###
-    # Save the most recent depth image into a variable
-    def process_depth(self, data):
-        self.depth_image = self.bridge.imgmsg_to_cv2(data)
 
     # Processing an RGB image when received
     def process_image(self, data):
@@ -553,6 +516,43 @@ class realsense:
         # Publishing all the fruit poses that were identified
         self.position_pub.publish(fruit)
   
+# Defining an object that takes a stream of timestamped positions and predicts the next position
+# Note: it does not make any predictions yet
+class motion_estimator:
+    ### BASIC INTERFACING ###
+    # Turning on and connecting up all the components
+    def turn_on(self):
+        # Starting up the input and output nodes of the system
+        self.point_pub = rospy.Publisher("xflame/predicted_position", Point, queue_size = 1)
+        self.point_sub = rospy.Subscriber("xflame/perceived_position", PointStamped, self.predict_position)
+
+        self.on = True
+
+    # Closing down the system cleanly
+    def turn_off(self):
+        # Disconnecting all the cables
+        self.point_pub.unregister()
+        self.point_sub.unregister()
+
+        self.on = False
+
+    # Initialising the crystal ball
+    def __init__(self):
+        self.on = False
+
+ 
+    # Callback for recieving fruit positions
+    def predict_position(self, data: PointStamped):
+        fruit_position = data.point
+        
+        predicted_point = Point()
+        predicted_point.x = fruit_position.x #self.fruit_predict.predicted_pos[0]
+        predicted_point.y = fruit_position.y #self.fruit_predict.predicted_pos[1]
+        predicted_point.z = fruit_position.z #self.fruit_predict.predicted_pos[2]
+
+        self.point_pub.publish(predicted_point)
 
 
+rob_arm = ur_five()
+rob_arm.baslers_to_tcp(Point(0.03,0.02,0.3))
 # END
