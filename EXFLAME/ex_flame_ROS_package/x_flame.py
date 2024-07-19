@@ -109,7 +109,7 @@ class ur_five:
         if fruit:
             self.tcp_offset = [0, 0, 0.230]
         else:
-            self.tcp_offset = [0, 0, 0.260]
+            self.tcp_offset = [0.06, 0.02, 0.400]
 
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0

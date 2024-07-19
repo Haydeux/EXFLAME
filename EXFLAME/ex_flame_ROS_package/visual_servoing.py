@@ -40,7 +40,7 @@ def close_devices():
 # THE MAIN WORKFLOW OF THE SYSTEM
 if __name__ == '__main__':
     cameras = baslers()
-    robot_arm = ur_five()
+    robot_arm = ur_five(False)
     predictor = motion_estimator()
 
     rospy.init_node('listener', anonymous = True)
