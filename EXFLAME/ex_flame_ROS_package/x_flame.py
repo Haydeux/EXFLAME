@@ -10,6 +10,8 @@ import time
 import math
 import threading
 
+import Jetson.GPIO as GPIO
+
 import rospy
 
 from geometry_msgs.msg import PoseArray
@@ -46,6 +48,53 @@ class baslers:
 
 
 
+class laser:    
+    def __init__(self):
+        # Disable warnings
+        #GPIO.setwarnings(False)
+
+        # Pin Definitions
+        self.laser_pin = 12  # BCM pin 18, BOARD pin 12
+
+        # Set up the GPIO channel
+        GPIO.setmode(GPIO.BOARD)  # Use BOARD pin numbering
+        GPIO.setup(self.laser_pin, GPIO.OUT, initial=GPIO.LOW)  # Set pin as output and initialize to low
+
+        self.change_time = time.time()
+        self.laser_state_on = False
+
+        self.on = False
+
+    def turn_on(self):
+        self.change_time = time.time()
+        self.error_sub = rospy.Subscriber("xflame/position_error", Point, self.operate_laser)
+        self.on = True
+    
+    def turn_off(self):
+        self.laser_off()
+        GPIO.cleanup()  # Clean up GPIO on exit         
+        self.error_sub.unregister()
+        self.on = False
+
+    def laser_on(self):
+        GPIO.output(self.laser_pin, GPIO.HIGH)
+        self.laser_state_on = True
+
+    def laser_off(self):
+        GPIO.output(self.laser_pin, GPIO.LOW)
+        self.laser_state_on = False
+
+    def operate_laser(self, position:PointStamped):
+        distance = np.sqrt(np.power(position.x, 2) + np.power(position.y, 2) + np.power(position.z, 2))
+        
+        if ((time.time() - self.change_time) > 1.0):
+            if ((distance <= 0.01) and (not self.laser_state_on)):
+                self.laser_on()
+            elif ((distance > 0.01) and (self.laser_state_on)):
+                self.laser_off()
+
+
+
 # Defining the ur five input and output communication
 class ur_five:
     ### BASIC INTERFACING ###
@@ -72,13 +121,13 @@ class ur_five:
     # Turn off the ur_five object
     def turn_off(self):
         # Disconnecting all the cables
-        try:
-            self.position_pub.unregister()
-            self.error_pub.unregister()
-            self.target_sub.unregister()
-            self.fruits_sub.unregister()
-        except:
-            print("already off")
+        #try:
+        self.position_pub.unregister()
+        self.error_pub.unregister()
+        self.target_sub.unregister()
+        self.fruits_sub.unregister()
+        #except:
+        #print("already off")
         
         self.on = False
 
@@ -109,7 +158,7 @@ class ur_five:
         if fruit:
             self.tcp_offset = [0, 0, 0.230]
         else:
-            self.tcp_offset = [0.06, 0.02, 0.400]
+            self.tcp_offset = [0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
 
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0
@@ -432,8 +481,7 @@ class ur_five:
 
 
 
-# Defining an object that takes a stream of timestamped positions and predicts the next position
-# Note: it does not make any predictions yet
+# Predicts flower motion and future position
 class motion_estimator:
     ### BASIC INTERFACING ###
     # Turning on and connecting up all the components
@@ -447,11 +495,11 @@ class motion_estimator:
     # Closing down the system cleanly
     def turn_off(self):
         # Disconnecting all the cables
-        try:
-            self.point_pub.unregister()
-            self.point_sub.unregister()
-        except:
-            print("already off")    
+        #try:
+        self.point_pub.unregister()
+        self.point_sub.unregister()
+        #except:
+        #print("already off")    
 
         self.on = False
 
@@ -465,9 +513,9 @@ class motion_estimator:
         fruit_position = data.point
         
         predicted_point = Point()
-        predicted_point.x = fruit_position.x #self.fruit_predict.predicted_pos[0]
-        predicted_point.y = fruit_position.y #self.fruit_predict.predicted_pos[1]
-        predicted_point.z = fruit_position.z #self.fruit_predict.predicted_pos[2]
+        predicted_point.x = fruit_position.x 
+        predicted_point.y = fruit_position.y 
+        predicted_point.z = fruit_position.z 
 
         self.point_pub.publish(predicted_point)
 

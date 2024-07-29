@@ -12,12 +12,16 @@ GPIO.setmode(GPIO.BOARD)  # Use BOARD pin numbering
 GPIO.setup(led_pin, GPIO.OUT, initial=GPIO.LOW)  # Set pin as output and initialize to low
 
 try:
+    print("high")
+    GPIO.output(led_pin, GPIO.HIGH)  # Turn LED on
     while True:
-        print("high")
-        GPIO.output(led_pin, GPIO.HIGH)  # Turn LED on
-        time.sleep(5)  # Wait for 5 seconds
-        print("low")
-        GPIO.output(led_pin, GPIO.LOW)  # Turn LED off
-        time.sleep(5)  # Wait for 5 seconds
+        pass
+        # time.sleep(5)  # Wait for 5 seconds
+        # print("low")
+        # GPIO.output(led_pin, GPIO.LOW)  # Turn LED off
+        # time.sleep(5)  # Wait for 5 seconds
+except:
+    print("stopped")
 finally:
+    GPIO.output(led_pin, GPIO.LOW)
     GPIO.cleanup()  # Clean up GPIO on exit

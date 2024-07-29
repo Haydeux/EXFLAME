@@ -13,6 +13,7 @@ import rospy
 # Importing all the flame libraries
 from x_flame import ur_five
 from x_flame import baslers
+from x_flame import laser
 from x_flame import motion_estimator
 
 import time
@@ -22,16 +23,18 @@ import time
 
 # Starting up and connecting to all the devices
 def start_devices():
-    global cameras, robot_arm, predictor
+    global cameras, robot_arm, predictor, laser_pointer
     cameras.turn_on()
+    laser_pointer.turn_on()
     robot_arm.turn_on()
     predictor.turn_on()
 
 
 # The function that initialises the shutdown
 def close_devices():
-    global cameras, robot_arm, predictor
+    global cameras, robot_arm, predictor, laser_pointer
     cameras.turn_off()
+    laser_pointer.turn_off()
     robot_arm.turn_off()
     predictor.turn_off()
     
@@ -40,6 +43,7 @@ def close_devices():
 # THE MAIN WORKFLOW OF THE SYSTEM
 if __name__ == '__main__':
     cameras = baslers()
+    laser_pointer = laser()
     robot_arm = ur_five(False)
     predictor = motion_estimator()
 
