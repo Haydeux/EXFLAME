@@ -171,6 +171,10 @@ class Baslers {
                     loops++;
                     auto start = std::chrono::high_resolution_clock::now();
 
+                    // Record the time that the images were captured at, to be sent in the ros message
+                    geometry_msgs::PoseArray pose_array;
+                    pose_array.header.stamp = ros::Time::now();
+
                     // Grab and retrieve images from camera_left
                     camera_left.RetrieveResult(500, grabResultLeft, TimeoutHandling_ThrowException);
                     if (grabResultLeft->GrabSucceeded()) {
@@ -185,8 +189,8 @@ class Baslers {
                     } else continue; // If no image was captured, skip this loop
 
                     // Record the time that the images were captured at, to be sent in the ros message
-                    geometry_msgs::PoseArray pose_array;
-                    pose_array.header.stamp = ros::Time::now();
+                    //geometry_msgs::PoseArray pose_array;
+                    //pose_array.header.stamp = ros::Time::now();
 
                     // Convert from bayer BG colour scheme to RGB colour
                     cvtColor(leftImage, color_left_image, COLOR_BayerBG2RGB);

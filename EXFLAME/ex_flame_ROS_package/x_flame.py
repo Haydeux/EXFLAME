@@ -20,6 +20,8 @@ from geometry_msgs.msg import PointStamped
 
 import rtdeState
 
+import csv
+
 
 # Defines the interface to launch the baslers C++ program
 class baslers:
@@ -111,7 +113,7 @@ class ur_five:
         self.error_pub = rospy.Publisher("xflame/position_error", Point, queue_size = 1)
 
         # Starting the workflow of predicted position to RTDE
-        self.target_sub = rospy.Subscriber("xflame/predicted_position", Point, self.upload_pose)
+        self.target_sub = rospy.Subscriber("xflame/predicted_position", PointStamped, self.upload_pose)
         self.fruits_sub = rospy.Subscriber("xflame/baslers_positions", PoseArray, self.servo_baslers)
 
         # Start the thread to record the TCP poses of the UR5
@@ -147,7 +149,7 @@ class ur_five:
         # Creating variables to store the active poses of the objects
         self.actual_tcp = [0, 0, 0, 0, 0, 0]
 
-        # The offset of the RGB realsense camera and the TCP
+        # The offset of the camera and the TCP
         self.realsense_offset = [-0.215, 0.0, -0.055]
         self.baslers_offset = [0.055, 0.0175, 0.0425]
         self.baslers_rotation = [[ 0, -1,  0],
@@ -158,10 +160,13 @@ class ur_five:
         if fruit:
             self.tcp_offset = [0, 0, 0.230]
         else:
-            self.tcp_offset = [0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
+            self.tcp_offset = [0.035, 0.00, 0.400] #[0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
 
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0
+
+        self.avg_time = 0
+        self.n = -30
 
     # The function that continuously records the TCP pose of the UR5 when it is on
     def record_tcp(self) -> None:
@@ -193,24 +198,24 @@ class ur_five:
         self.tcps[0] = [tcp, time_stamp]
 
     # Uploads a pose to the registers used for communicating pose with the RTDE
-    def upload_pose(self, position: Point) -> None:
+    def upload_pose(self, position: PointStamped) -> None:
         target = [0, 0, 0, 0, 0, 0]
 
         # Dealing with the translation first
-        target[0] = position.x
-        target[1] = position.y
-        target[2] = position.z
+        target[0] = position.point.x
+        target[1] = position.point.y
+        target[2] = position.point.z
 
         # If any of the movement limits are violated do not upload the target
-        if (position.x < 0.2) or (position.x > 0.84): #change?
+        if (position.point.x < 0.2) or (position.point.x > 0.84): #change?
             print("Position out of range x")
             return
-        if (position.y < -0.6) or (position.y > 0.6): #change to 0.7?
+        if (position.point.y < -0.6) or (position.point.y > 0.6): #change to 0.7?
             print("Position out of range y")
             return
-        if position.z > 0.7: #change to 0.75?
+        if position.point.z > 0.7: #change to 0.75?
             print("Position out of range z")
-            print(position.z)
+            print(position.point.z)
             return
         
         # Dealing with the rotation next
@@ -241,6 +246,17 @@ class ur_five:
             # Set the next time which a message should be sent
             self.target_time = time.time() + self.delay_time
 
+        # Measure time
+        current_time = rospy.Time.now().to_time()
+        capture_time = position.header.stamp.to_time()
+        elapse_time = (current_time - capture_time) * 1000
+
+        self.n += 1
+        if self.n > 0:
+            self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
+            #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+
+
     # Updates all the variables of the code to match that of the actual UR5
     def download_variables(self) -> None:
         state = self.rtde.receive()
@@ -256,7 +272,7 @@ class ur_five:
 
     ### ROSTOPIC COMMUNICATION ###
     # Publishes the target to the predictive motion node
-    def publish_position(self, position: Point, position_time: float) -> None:
+    def publish_position(self, position: PointStamped, position_time: float) -> None:
         # If the position is empty dont try to send it
         if position == None:
             return
@@ -264,21 +280,20 @@ class ur_five:
         # Publish the global position of the detected fruit for data recording
         pub_point = PointStamped()
 
-        pub_point.point.x = position.x
-        pub_point.point.y = position.y
-        pub_point.point.z = position.z
+        pub_point.point.x = position.point.x
+        pub_point.point.y = position.point.y
+        pub_point.point.z = position.point.z
 
-        pub_point.header.stamp.secs = int(position_time)
-        pub_point.header.stamp.nsecs = int((position_time % 1) * 10 ** 9)
+        pub_point.header.stamp = position.header.stamp
 
         self.position_pub.publish(pub_point)
 
         # Calculates the error of the current target and publishes it to the ros topic
         error = Point()
 
-        error.x = position.x - self.actual_tcp[0]
-        error.y = position.y - self.actual_tcp[1]
-        error.z = position.z - self.actual_tcp[2]
+        error.x = position.point.x - self.actual_tcp[0]
+        error.y = position.point.y - self.actual_tcp[1]
+        error.z = position.point.z - self.actual_tcp[2]
 
         self.error_pub.publish(error)
 
@@ -428,8 +443,14 @@ class ur_five:
         # Calculating the global position of the kiwifruit
         best_position = self.tcp_to_base(best)
 
+        best_pose = PointStamped()
+        best_pose.point.x = best_position.x
+        best_pose.point.y = best_position.y
+        best_pose.point.z = best_position.z
+        best_pose.header.stamp = targets.header.stamp
+
         # Publish the closest position to the motion estimator
-        self.publish_position(best_position, image_time)
+        self.publish_position(best_pose, image_time)
 
     # Given a list of candidate targets relative to the baslers, determines the position of the closest target and the global coordinates
     def servo_baslers(self, targets: PoseArray) -> None:
@@ -455,8 +476,14 @@ class ur_five:
         # Calculating the global position of the kiwifruit
         best_position = self.tcp_to_base(best)
 
+        best_pose = PointStamped()
+        best_pose.point.x = best_position.x
+        best_pose.point.y = best_position.y
+        best_pose.point.z = best_position.z
+        best_pose.header.stamp = targets.header.stamp
+
         # Publish the closest position to the motion estimator
-        self.publish_position(best_position, image_time)
+        self.publish_position(best_pose, image_time)
 
     # Returns the rotation value of the UR5 as a point
     def get_rotation(self) -> Point:
@@ -487,7 +514,7 @@ class motion_estimator:
     # Turning on and connecting up all the components
     def turn_on(self):
         # Starting up the input and output nodes of the system
-        self.point_pub = rospy.Publisher("xflame/predicted_position", Point, queue_size = 1)
+        self.point_pub = rospy.Publisher("xflame/predicted_position", PointStamped, queue_size = 1)
         self.point_sub = rospy.Subscriber("xflame/perceived_position", PointStamped, self.predict_position)
 
         self.on = True
@@ -507,15 +534,49 @@ class motion_estimator:
     def __init__(self):
         self.on = False
 
+        self.position_list = [["Time in ms", "X in mm", "Y in mm", "Z in mm"]]
+        self.avg_time = 0
+        self.n = -100
+
+        self.record_start = None
+        self.recorded = False
+
  
     # Callback for recieving fruit positions
     def predict_position(self, data: PointStamped):
         fruit_position = data.point
+
+        current_time = rospy.Time.now().to_time()
+        capture_time = data.header.stamp.to_time()
+    
+        elapse_time = (current_time - capture_time) * 1000
+
+        self.n += 1
+        if self.n > 0:
+            if self.record_start is None:
+                self.record_start = capture_time
+
+            if len(self.position_list) < 1000:
+                pos_time = [round((capture_time - self.record_start)*1000,5), round(fruit_position.x*1000,2), round(fruit_position.y*1000,2), round(fruit_position.z*1000,2)]
+                self.position_list.append(pos_time)
+            elif not self.recorded:
+                with open("data.csv", "w", newline="") as file:
+                    writer = csv.writer(file)
+                    writer.writerows(self.position_list)
+                print("written to csv")
+                self.recorded = True
+            else:
+                print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+
+
+            self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
+            #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
         
-        predicted_point = Point()
-        predicted_point.x = fruit_position.x 
-        predicted_point.y = fruit_position.y 
-        predicted_point.z = fruit_position.z 
+        predicted_point = PointStamped()
+        predicted_point.header.stamp = data.header.stamp
+        predicted_point.point.x = fruit_position.x 
+        predicted_point.point.y = fruit_position.y 
+        predicted_point.point.z = fruit_position.z 
 
         self.point_pub.publish(predicted_point)
 
