@@ -304,7 +304,9 @@ class Baslers {
                 
                 // Print the average time taken by the loop  ###################################################################################
                 auto average_duration = total_duration / loops;
+#if DISPLAY_IMAGES == 1
                 std::cout << std::endl << "Average time: " << average_duration.count() << " us" << std::endl;
+#endif
 
             } // Catch any generic pylon camera exceptions
             catch (const GenericException &e) { 

@@ -53,22 +53,30 @@ def scale_image(img, scale=100):
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 print(cur_dir)
-y10_path = os.path.join(cur_dir, 'best.pt')
+# y10_path = os.path.join(cur_dir, 'best.pt')
 engine_path = os.path.join(cur_dir, 'best.engine')
 
-#model = YOLO('yoloV8_flowers.pt', task='detect')
-model_y10 = YOLOv10(y10_path, task='detect')
 
-#model.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
-#model_y10.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 
-#tensorrt_model = YOLO("yoloV8_flowers.engine", task='detect')
+# model_y10 = YOLOv10(y10_path, task='detect')
+# model_y10.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 tensorrt_model = YOLOv10(engine_path, task='detect')
+
+
+#model = YOLO('yoloV8_flowers.pt', task='detect')
+#model.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
+#tensorrt_model = YOLO("yoloV8_flowers.engine", task='detect')
+
 
 
 def main():
     global polygons_pub
-    process_path = os.path.join(cur_dir, 'processing_connect_test')
+    process_path = os.path.join(cur_dir, 'processing_connect') #_test')
+
+    print("warming up")
+    warm_up_image_path = os.path.join(cur_dir, 'warm_up.png')
+    warm_up_image = cv.imread(warm_up_image_path)
+    run_prediction(tensorrt_model, warm_up_image)
 
     print("start")
 
@@ -80,39 +88,40 @@ def main():
     print("begin subprocess")
     process = start_process(process_path)
 
-    key = 0
-    while not rospy.is_shutdown() and key != 27:
-        key = cv.waitKey(1)
-        #pass
+    #key = 0
+    # while not rospy.is_shutdown(): #and key != 27:
+    #     #key = cv.waitKey(1)
+    #     pass
+    rospy.spin()
     
     print("closing")
     stop_process(process)
     image_sub.unregister()
-    cv.destroyAllWindows()
+    #cv.destroyAllWindows()
     print("Program ended")
 
 
 
 def prediction_callback(data):
-    if not hasattr(prediction_callback, "latency_counter"):
-        prediction_callback.latency_counter = 0
-        prediction_callback.latency_avg = 0
+    # if not hasattr(prediction_callback, "latency_counter"):
+    #     prediction_callback.latency_counter = 0
+    #     prediction_callback.latency_avg = 0
     global polygons_pub
     bridge = CvBridge()
     try:
         # Convert the ROS Image message to a OpenCV image
         cv_image = bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
 
-        send_time = data.header.stamp
-        receive_time = rospy.Time.now()
-        latency = round((receive_time - send_time).to_sec() * 1000, 3) 
-        prediction_callback.latency_counter = prediction_callback.latency_counter + 1
-        prediction_callback.latency_avg = prediction_callback.latency_avg + latency
-        print(f"\rlatency: {latency:.3f} ms  |  Avg = {prediction_callback.latency_avg/prediction_callback.latency_counter:.3f} ms     ", end="")
+        # send_time = data.header.stamp
+        # receive_time = rospy.Time.now()
+        # latency = round((receive_time - send_time).to_sec() * 1000, 3) 
+        # prediction_callback.latency_counter = prediction_callback.latency_counter + 1
+        # prediction_callback.latency_avg = prediction_callback.latency_avg + latency
+        # print(f"\rlatency: {latency:.3f} ms  |  Avg = {prediction_callback.latency_avg/prediction_callback.latency_counter:.3f} ms     ", end="")
         
-        # Display the image using OpenCV
-        cv.imshow("Received Image", cv_image)
-        cv.waitKey(1)
+        # # Display the image using OpenCV
+        # cv.imshow("Received Image", cv_image)
+        # cv.waitKey(1)
 
         rectangles = run_prediction(tensorrt_model, cv_image)
         # print(points)

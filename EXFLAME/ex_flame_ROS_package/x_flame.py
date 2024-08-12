@@ -124,6 +124,7 @@ class ur_five:
     def turn_off(self):
         # Disconnecting all the cables
         #try:
+        self.clear_pose()
         self.position_pub.unregister()
         self.error_pub.unregister()
         self.target_sub.unregister()
@@ -160,7 +161,7 @@ class ur_five:
         if fruit:
             self.tcp_offset = [0, 0, 0.230]
         else:
-            self.tcp_offset = [0.035, 0.00, 0.400] #[0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
+            self.tcp_offset = [0.0325, 0.00, 0.400] #[0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
 
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0
@@ -198,24 +199,33 @@ class ur_five:
         self.tcps[0] = [tcp, time_stamp]
 
     # Uploads a pose to the registers used for communicating pose with the RTDE
-    def upload_pose(self, position: PointStamped) -> None:
+    def upload_pose(self, position_stamped: PointStamped) -> None:
         target = [0, 0, 0, 0, 0, 0]
 
+        # Applying a translation to account for the desired TCP offset
+        position = Point()
+        position.x = position_stamped.point.x - self.tcp_offset[0]
+        position.y = position_stamped.point.y - self.tcp_offset[1]
+        position.z = position_stamped.point.z - self.tcp_offset[2]
+
+        # position = self.baslers_to_tcp(position)
+        # position = self.tcp_to_base(position)
+
         # Dealing with the translation first
-        target[0] = position.point.x
-        target[1] = position.point.y
-        target[2] = position.point.z
+        target[0] = position.x
+        target[1] = position.y
+        target[2] = position.z
 
         # If any of the movement limits are violated do not upload the target
-        if (position.point.x < 0.2) or (position.point.x > 0.84): #change?
+        if (position.x < 0.2) or (position.x > 0.84): #change?
             print("Position out of range x")
             return
-        if (position.point.y < -0.6) or (position.point.y > 0.6): #change to 0.7?
+        if (position.y < -0.6) or (position.y > 0.6): #change to 0.7?
             print("Position out of range y")
             return
-        if position.point.z > 0.7: #change to 0.75?
+        if position.z > 0.7: #change to 0.75?
             print("Position out of range z")
-            print(position.point.z)
+            print(position.z)
             return
         
         # Dealing with the rotation next
@@ -248,13 +258,22 @@ class ur_five:
 
         # Measure time
         current_time = rospy.Time.now().to_time()
-        capture_time = position.header.stamp.to_time()
+        capture_time = position_stamped.header.stamp.to_time()
         elapse_time = (current_time - capture_time) * 1000
 
         self.n += 1
         if self.n > 0:
             self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
             #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+
+    # Uploads a pose to the registers used for communicating pose with the RTDE
+    def clear_pose(self) -> None:
+        target = [0, 0, 0, 0, 0, 0]
+
+        # Upload the target to the UR5 robotic arm
+        for i in range(0, len(target)):
+            self.rtde.target_point.__dict__["input_double_register_%i" % i] = target[i]
+        self.rtde.con.send(self.rtde.target_point)
 
 
     # Updates all the variables of the code to match that of the actual UR5
@@ -291,9 +310,9 @@ class ur_five:
         # Calculates the error of the current target and publishes it to the ros topic
         error = Point()
 
-        error.x = position.point.x - self.actual_tcp[0]
-        error.y = position.point.y - self.actual_tcp[1]
-        error.z = position.point.z - self.actual_tcp[2]
+        error.x = position.point.x - self.tcp_offset[0] - self.actual_tcp[0]
+        error.y = position.point.y - self.tcp_offset[1] - self.actual_tcp[1]
+        error.z = position.point.z - self.tcp_offset[2] - self.actual_tcp[2]
 
         self.error_pub.publish(error)
 
@@ -306,8 +325,10 @@ class ur_five:
 
         # First rotating the position of the fruit relative to the global axes
         # Note that the angles of x and y are flipped to counteract some flipping action done earlier
-        rx = - self.actual_tcp[3]
-        ry = - self.actual_tcp[4]
+        # rx = - self.actual_tcp[3]
+        # ry = - self.actual_tcp[4]
+        rx = self.actual_tcp[3]
+        ry = self.actual_tcp[4]
         rz = self.actual_tcp[5]
 
         # Converting the pose to axis angle notation
@@ -400,11 +421,10 @@ class ur_five:
         # Apply the baslers translation offset to the point
         translated_point = rotated_point + np.array(self.baslers_offset)
 
-        # Applying a translation to account for the desired TCP offset
         transformed_point = Point()
-        transformed_point.x = translated_point[0] - self.tcp_offset[0]
-        transformed_point.y = translated_point[1] - self.tcp_offset[1]
-        transformed_point.z = translated_point[2] - self.tcp_offset[2]
+        transformed_point.x = translated_point[0]
+        transformed_point.y = translated_point[1]
+        transformed_point.z = translated_point[2]
 
         return transformed_point
     
@@ -460,7 +480,7 @@ class ur_five:
         # Updates the pose values of the UR5 and realsense
         self.update_pose(image_time)
 
-        min_error = 10
+        min_error = 1000
         
         # Convert all the targets to TCP coordinates and evaluate the best one according to distance from the TCP
         for target in targets.poses:
@@ -471,15 +491,14 @@ class ur_five:
             # Calculating if this is a minimum reading and saving it if it is
             if error < min_error:
                 best = position
+                #best_position = target.position
                 min_error = error
 
         # Calculating the global position of the kiwifruit
         best_position = self.tcp_to_base(best)
 
         best_pose = PointStamped()
-        best_pose.point.x = best_position.x
-        best_pose.point.y = best_position.y
-        best_pose.point.z = best_position.z
+        best_pose.point = best_position
         best_pose.header.stamp = targets.header.stamp
 
         # Publish the closest position to the motion estimator
@@ -501,8 +520,10 @@ class ur_five:
         # Iterate through all the tcp readings until one is later than the desired time
         for tcp in self.tcps:
             if (tcp != 0):
+                #print(f"TCP time: {tcp[1]:.4f}  |  Pose time: {pose_time:.4f}")
                 if (tcp[1] < pose_time):
                     self.actual_tcp = tcp[0]
+                    #print("time chosen")
                     break
 
 
@@ -536,7 +557,7 @@ class motion_estimator:
 
         self.position_list = [["Time in ms", "X in mm", "Y in mm", "Z in mm"]]
         self.avg_time = 0
-        self.n = -100
+        self.n = -10
 
         self.record_start = None
         self.recorded = False
@@ -556,17 +577,19 @@ class motion_estimator:
             if self.record_start is None:
                 self.record_start = capture_time
 
-            if len(self.position_list) < 1000:
+            if len(self.position_list) < 100:
                 pos_time = [round((capture_time - self.record_start)*1000,5), round(fruit_position.x*1000,2), round(fruit_position.y*1000,2), round(fruit_position.z*1000,2)]
                 self.position_list.append(pos_time)
+                print(f"recording... {len(self.position_list)}      ",end="\r")
             elif not self.recorded:
                 with open("data.csv", "w", newline="") as file:
                     writer = csv.writer(file)
                     writer.writerows(self.position_list)
-                print("written to csv")
+                print("\nwritten to csv")
                 self.recorded = True
             else:
                 print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+                pass
 
 
             self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
