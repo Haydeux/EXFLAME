@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-#from ultralytics import YOLO
+from ultralytics import YOLO
 from ultralytics import YOLOv10
 from pypylon import pylon
 import cv2 as cv
+import numpy as np
 import rospy
 import os
 
@@ -18,7 +19,7 @@ import signal
 import sys
 
 
-yolo_frame = 10
+yolo_frame = 50
 
 
 
@@ -56,17 +57,17 @@ def scale_image(img, scale=100):
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 print(cur_dir)
-# y10_path = os.path.join(cur_dir, 'best.pt')
+y10_path = os.path.join(cur_dir, 'best.pt')
 engine_path = os.path.join(cur_dir, 'best.engine')
 
 
 
-# model_y10 = YOLOv10(y10_path, task='detect')
+model_y10 = YOLOv10(y10_path, task='detect')
 # model_y10.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 tensorrt_model = YOLOv10(engine_path, task='detect')
 
 
-#model = YOLO('yoloV8_flowers.pt', task='detect')
+model = YOLO('yoloV8_flowers.pt', task='detect')
 #model.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 #tensorrt_model = YOLO("yoloV8_flowers.engine", task='detect')
 
@@ -79,7 +80,8 @@ def main():
     print("warming up")
     warm_up_image_path = os.path.join(cur_dir, 'warm_up.png')
     warm_up_image = cv.imread(warm_up_image_path)
-    run_prediction(tensorrt_model, warm_up_image)
+    #run_prediction(tensorrt_model, warm_up_image)
+    run_prediction(model_y10, warm_up_image)
 
     print("start")
 
@@ -104,13 +106,19 @@ def main():
     print("Program ended")
 
 
-
 def prediction_callback(data):
-    # if not hasattr(prediction_callback, "latency_counter"):
-    #     prediction_callback.latency_counter = 0
-    #     prediction_callback.latency_avg = 0
+    if not hasattr(prediction_callback, "latency_counter"):
+        prediction_callback.latency_counter = -20 * yolo_frame
+        prediction_callback.latency_avg = 0
+        prediction_callback.ml_time = 0
+        prediction_callback.pm_time = 0
+        prediction_callback.times = []
+        prediction_callback.print = True
+
     if not hasattr(prediction_callback, "loop_counter"):
         prediction_callback.loop_counter = yolo_frame
+        prediction_callback.rectangles = None
+        prediction_callback.patches = None
 
     global polygons_pub
     bridge = CvBridge()
@@ -129,19 +137,47 @@ def prediction_callback(data):
         # cv.imshow("Received Image", cv_image)
         # cv.waitKey(1)
 
+        
+        ml_time = 0
+        pm_time = 0
+
         if prediction_callback.loop_counter >= yolo_frame:
-            rectangles = run_prediction(tensorrt_model, cv_image)
+            # Run yolo prediction and reset loop counter
+            prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(model_y10, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            prediction_callback.loop_counter = 0
         else:
             # Colour match 
-            colour_detect(cv_image)
+            #rectangles = colour_detect(cv_image)
 
             # Patch match 
-            #patch
+            prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+
+            # Increase loop counter
+            prediction_callback.loop_counter += 1
+
+        
+        
+        if prediction_callback.latency_counter < 0:
+            prediction_callback.latency_counter += 1
+        elif prediction_callback.latency_counter >= 1000:
+            if prediction_callback.print:
+                print(f"average time: {np.average(prediction_callback.times):.2f}")
+            prediction_callback.print = False
+        else:
+            prediction_callback.latency_counter += 1
+            if pm_time == 0:
+                prediction_callback.times.append(ml_time)
+            elif ml_time == 0:
+                prediction_callback.times.append(pm_time)
+
+        if prediction_callback.print:
+            print(f"last 100 time: {np.sum(prediction_callback.times[max(-101, -1*len(prediction_callback.times)):-1]):.2f}")
+
             
 
         polygon_msg = Polygon()
 
-        for rect in rectangles:
+        for rect in prediction_callback.rectangles:
             for corner in rect:
                 point = Point32(x=corner[0], y=corner[1], z=0.0)
                 polygon_msg.points.append(point)
@@ -157,9 +193,14 @@ def prediction_callback(data):
 
 
 def run_prediction(model, image):
+    if not hasattr(run_prediction, "avg_time"):
+        run_prediction.avg_time = 0
+        run_prediction.loops = -100
+    start_time = time.time()
     results = model.predict(image, imgsz=(480,640), conf=0.4, iou=0.8, half=True, verbose=False)
     results = results[0] 
     regions = []
+    patches = []
     for i in range(len(results.boxes)):
         box = results.boxes[i]
         tensor = box.xyxy[0]
@@ -167,13 +208,44 @@ def run_prediction(model, image):
         y1 = int(tensor[1].item())
         x2 = int(tensor[2].item())
         y2 = int(tensor[3].item())
+
+        roi = image[y1:y2, x1:x2]
+        patches.append(roi)
+
         #cv.rectangle(image, (x1,y1), (x2,y2), (255,0,255), 3)
         regions.append(((x1,y1),(x2,y2)))
     # cv.imshow("Image", image)
     # cv.waitKey(1)
-    return regions
+    end_time = time.time()
+    elapse_time = (end_time - start_time) * 1000 # ms
+    avg_time = 0
 
-# Dete
+    # if run_prediction.loops < 0:
+    #     run_prediction.loops += 1
+    # elif run_prediction.loops > 500:
+    #     avg_time = run_prediction.avg_time / run_prediction.loops
+    # else:
+    #     run_prediction.avg_time += elapse_time
+    #     run_prediction.loops += 1
+    #     avg_time = run_prediction.avg_time / run_prediction.loops
+
+
+    #print(f"Yolo time: {elapse_time:.2f}  |  {avg_time:.2f}")
+
+
+
+    # Optionally draw rectangles on the image for visualization
+    disp_copy = image.copy()
+    for reg in regions:
+        cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
+    cv.imshow("YOLO", disp_copy)
+    cv.waitKey(1)
+
+    return regions, patches, elapse_time
+
+
+
+# Detect flowers based on colour
 def colour_detect(image):
     # Convert the image to HSV color space
     hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
@@ -196,7 +268,7 @@ def colour_detect(image):
         x2, y2 = x + w, y + h
         regions.append(((x1, y1), (x2, y2)))
 
-    Optionally draw rectangles on the image for visualization
+    # Optionally draw rectangles on the image for visualization
     for region in regions:
         cv.rectangle(image, region[0], region[1], (255, 0, 255), 3)
     cv.imshow("Image", image)
@@ -206,8 +278,90 @@ def colour_detect(image):
     
 
 # Match the image patch (from a previous frame) to its most similar location
-def patch_match(image, patches):
-    pass
+def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
+    if not hasattr(patch_match, "avg_time"):
+        patch_match.avg_time = []
+        patch_match.loops = -100
+        patch_match.print = True
+
+    start_time = time.time()
+    updated_patches = []
+    updated_rectangles = []
+
+    image_small = cv.resize(image, None, fx=scale, fy=scale, interpolation=cv.INTER_LINEAR)
+
+    for ind, patch in enumerate(patches):
+        best_match = None
+        best_score = -1
+        best_rect = None
+        best_patch = None
+
+        patch = cv.resize(patch, None, fx=scale, fy=scale, interpolation=cv.INTER_LINEAR)
+
+        # Define the search window around the original rectangle
+        search_x1 = max(0, int(rects[ind][0][0]*scale) - search_window_size)
+        search_y1 = max(0, int(rects[ind][0][1]*scale) - search_window_size)
+        search_x2 = min(image_small.shape[1], int(rects[ind][1][0]*scale) + search_window_size)
+        search_y2 = min(image_small.shape[0], int(rects[ind][1][1]*scale) + search_window_size)
+        search_region = image_small[search_y1:search_y2, search_x1:search_x2]
+
+        # for scale in scales:
+        #     # Resize the patch
+        #     scaled_patch = cv.resize(patch, None, fx=scale, fy=scale, interpolation=cv.INTER_LINEAR)
+
+        # Perform template matching
+        result = cv.matchTemplate(search_region, patch, cv.TM_CCOEFF_NORMED)
+
+        # Get the best match position for this scale
+        _, max_val, _, max_loc = cv.minMaxLoc(result)
+
+        if max_val > best_score:
+            best_score = max_val
+            best_match = max_loc
+            best_patch = cv.resize(patch, None, fx=1/scale, fy=1/scale, interpolation=cv.INTER_LINEAR)
+            # Calculate the new rectangle coordinates
+            patch_h, patch_w = patch.shape[:2]
+            new_x1 = int((search_x1 + best_match[0]) / scale)
+            new_y1 = int((search_y1 + best_match[1]) / scale)
+            new_x2 = int((search_x1 + best_match[0] + patch_w) / scale)
+            new_y2 = int((search_y1 + best_match[1] + patch_h) / scale)
+            best_rect = ((new_x1, new_y1), (new_x2, new_y2))
+
+        # Append the updated patch and rectangle
+        updated_patches.append(best_patch)
+        updated_rectangles.append(best_rect)
+    
+    end_time = time.time()
+    elapse_time = (end_time - start_time) * 1000 # ms
+    avg_time = 0
+
+    # if patch_match.loops < 0:
+    #     patch_match.loops += 1
+    # elif patch_match.loops > 1000:
+    #     avg_time = np.average(patch_match.avg_time)
+    #     if patch_match.print:
+    #         print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
+    #         print(f"Min: {np.min(patch_match.avg_time):.2f}  |  Max: {np.max(patch_match.avg_time):.2f}")
+
+    #         print(len(patch_match.avg_time[-101:-1]))
+    #     patch_match.print = False
+    # else:
+    #     patch_match.avg_time.append(elapse_time)
+    #     patch_match.loops += 1
+    #     avg_time = np.average(patch_match.avg_time)  #/ patch_match.loops
+
+    # if patch_match.print:
+    #     print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
+
+
+    # Optionally draw rectangles on the image for visualization
+    disp_copy = image.copy()
+    for region in updated_rectangles:
+        cv.rectangle(disp_copy, region[0], region[1], (255, 0, 255), 3)
+    cv.imshow("Patch Match", disp_copy)
+    cv.waitKey(1)
+
+    return updated_rectangles, updated_patches, elapse_time
 
 
 
