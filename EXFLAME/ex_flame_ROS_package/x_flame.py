@@ -479,7 +479,8 @@ class ur_five:
 
         # Updates the pose values of the UR5 and realsense
         self.update_pose(image_time)
-
+        
+        best = None
         min_error = 1000
         
         # Convert all the targets to TCP coordinates and evaluate the best one according to distance from the TCP

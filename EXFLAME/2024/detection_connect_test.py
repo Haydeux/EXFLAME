@@ -18,6 +18,9 @@ import signal
 import sys
 
 
+yolo_frame = 10
+
+
 
 
 
@@ -106,6 +109,9 @@ def prediction_callback(data):
     # if not hasattr(prediction_callback, "latency_counter"):
     #     prediction_callback.latency_counter = 0
     #     prediction_callback.latency_avg = 0
+    if not hasattr(prediction_callback, "loop_counter"):
+        prediction_callback.loop_counter = yolo_frame
+
     global polygons_pub
     bridge = CvBridge()
     try:
@@ -123,8 +129,15 @@ def prediction_callback(data):
         # cv.imshow("Received Image", cv_image)
         # cv.waitKey(1)
 
-        rectangles = run_prediction(tensorrt_model, cv_image)
-        # print(points)
+        if prediction_callback.loop_counter >= yolo_frame:
+            rectangles = run_prediction(tensorrt_model, cv_image)
+        else:
+            # Colour match 
+            colour_detect(cv_image)
+
+            # Patch match 
+            #patch
+            
 
         polygon_msg = Polygon()
 
@@ -159,6 +172,43 @@ def run_prediction(model, image):
     # cv.imshow("Image", image)
     # cv.waitKey(1)
     return regions
+
+# Dete
+def colour_detect(image):
+    # Convert the image to HSV color space
+    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+
+    # Define the range for detecting white in HSV
+    lower_white = np.array([0, 0, 200])
+    upper_white = np.array([180, 30, 255])
+
+    # Create a mask for white regions
+    mask = cv.inRange(hsv, lower_white, upper_white)
+
+    # Find contours in the masked image
+    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    regions = []
+    for contour in contours:
+        # Get the bounding box for each contour
+        x, y, w, h = cv.boundingRect(contour)
+        x1, y1 = x, y
+        x2, y2 = x + w, y + h
+        regions.append(((x1, y1), (x2, y2)))
+
+    Optionally draw rectangles on the image for visualization
+    for region in regions:
+        cv.rectangle(image, region[0], region[1], (255, 0, 255), 3)
+    cv.imshow("Image", image)
+    cv.waitKey(1)
+
+    return regions
+    
+
+# Match the image patch (from a previous frame) to its most similar location
+def patch_match(image, patches):
+    pass
+
 
 
 
