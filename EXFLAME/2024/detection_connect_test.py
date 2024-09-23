@@ -62,12 +62,12 @@ engine_path = os.path.join(cur_dir, 'best.engine')
 
 
 
-model_y10 = YOLOv10(y10_path, task='detect')
+#model_y10 = YOLOv10(y10_path, task='detect')
 # model_y10.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 tensorrt_model = YOLOv10(engine_path, task='detect')
 
 
-model = YOLO('yoloV8_flowers.pt', task='detect')
+#model = YOLO('yoloV8_flowers.pt', task='detect')
 #model.export(format="engine", imgsz= (480,640), half=True, int8=True, simplify=True, dynamic=True)
 #tensorrt_model = YOLO("yoloV8_flowers.engine", task='detect')
 
@@ -81,7 +81,7 @@ def main():
     warm_up_image_path = os.path.join(cur_dir, 'warm_up.png')
     warm_up_image = cv.imread(warm_up_image_path)
     #run_prediction(tensorrt_model, warm_up_image)
-    run_prediction(model_y10, warm_up_image)
+    run_prediction(tensorrt_model, warm_up_image)
 
     print("start")
 
@@ -143,14 +143,19 @@ def prediction_callback(data):
 
         if prediction_callback.loop_counter >= yolo_frame:
             # Run yolo prediction and reset loop counter
-            prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(model_y10, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
             prediction_callback.loop_counter = 0
         else:
             # Colour match 
             #rectangles = colour_detect(cv_image)
 
+            # Get YOLO bounding boxes for comparison
+            gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+
             # Patch match 
             prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+
+            matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
 
             # Increase loop counter
             prediction_callback.loop_counter += 1
@@ -364,7 +369,61 @@ def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
     return updated_rectangles, updated_patches, elapse_time
 
 
+# Function to calculate IoU between two boxes
+def calculate_iou(box1, box2):
+    x1, y1, x2, y2 = box1
+    x1_gt, y1_gt, x2_gt, y2_gt = box2
 
+    # Determine the coordinates of the intersection rectangle
+    x_left = max(x1, x1_gt)
+    y_top = max(y1, y1_gt)
+    x_right = min(x2, x2_gt)
+    y_bottom = min(y2, y2_gt)
+
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0  # No overlap
+
+    # Area of the intersection rectangle
+    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+
+    # Areas of the bounding boxes
+    box1_area = (x2 - x1) * (y2 - y1)
+    box2_area = (x2_gt - x1_gt) * (y2_gt - y1_gt)
+
+    # Area of the union
+    union_area = box1_area + box2_area - intersection_area
+
+    # IoU is intersection area over union area
+    return intersection_area / union_area
+
+# Function to compare two lists of boxes
+def compare_boxes(ml_boxes, template_boxes, iou_threshold=0.5):
+    matched_pairs = []
+    unmatched_ml_boxes = []
+    unmatched_template_boxes = []
+
+    # Create IoU matrix between ML boxes and template boxes
+    iou_matrix = np.zeros((len(template_boxes), len(ml_boxes)))
+
+    for i, t_box in enumerate(template_boxes):
+        for j, ml_box in enumerate(ml_boxes):
+            iou_matrix[i, j] = calculate_iou(t_box, ml_box)
+
+    # For each template box, find the ML box with the highest IoU
+    for i, t_box in enumerate(template_boxes):
+        best_ml_idx = np.argmax(iou_matrix[i])
+        best_iou = iou_matrix[i, best_ml_idx]
+
+        if best_iou >= iou_threshold:
+            matched_pairs.append((t_box, ml_boxes[best_ml_idx], best_iou))
+        else:
+            unmatched_template_boxes.append(t_box)
+
+    # Find unmatched ML boxes
+    matched_ml_indices = {pair[1] for pair in matched_pairs}
+    unmatched_ml_boxes = [box for box in ml_boxes if box not in matched_ml_indices]
+
+    return matched_pairs, unmatched_template_boxes, unmatched_ml_boxes
 
 
 
