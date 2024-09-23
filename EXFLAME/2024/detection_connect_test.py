@@ -366,5 +366,8 @@ def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
 
 
 
+
+
+
 if __name__ == "__main__":
     main()
