@@ -19,7 +19,7 @@ import signal
 import sys
 
 
-yolo_frame = 50
+yolo_frame = 5
 
 
 
@@ -108,12 +108,15 @@ def main():
 
 def prediction_callback(data):
     if not hasattr(prediction_callback, "latency_counter"):
-        prediction_callback.latency_counter = -20 * yolo_frame
+        prediction_callback.latency_counter = -20 * (yolo_frame+1)
         prediction_callback.latency_avg = 0
-        prediction_callback.ml_time = 0
-        prediction_callback.pm_time = 0
+        prediction_callback.ml_times = []
+        prediction_callback.pm_times = []
         prediction_callback.times = []
         prediction_callback.print = True
+
+        prediction_callback.no_match_count = 0
+        prediction_callback.iou_list = []
 
     if not hasattr(prediction_callback, "loop_counter"):
         prediction_callback.loop_counter = yolo_frame
@@ -157,6 +160,12 @@ def prediction_callback(data):
 
             matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
 
+            #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
+
+            iou_vals = [mp[-1] for mp in matches]
+
+            prediction_callback.iou_list += iou_vals
+
             # Increase loop counter
             prediction_callback.loop_counter += 1
 
@@ -166,17 +175,26 @@ def prediction_callback(data):
             prediction_callback.latency_counter += 1
         elif prediction_callback.latency_counter >= 1000:
             if prediction_callback.print:
-                print(f"average time: {np.average(prediction_callback.times):.2f}")
+                print(f"PM mean time: {np.mean(prediction_callback.pm_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.pm_times, dtype=np.float64):.4f}")
+                print(f"ML mean time: {np.mean(prediction_callback.ml_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.ml_times, dtype=np.float64):.4f}")
+                print(f"Total mean time: {np.mean(prediction_callback.times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.times, dtype=np.float64):.4f}")
+                print(f"Mean iou: {np.mean(prediction_callback.iou_list, dtype=np.float64):.3f}  |  std: {np.std(prediction_callback.iou_list, dtype=np.float64):.4f}")
+                #print(f"Average unmatched per frame: {(prediction_callback.no_match_count / (1000+20*(1+yolo_frame)) ):.3f}")
+                #print(f"{prediction_callback.times[:30]}")
             prediction_callback.print = False
         else:
             prediction_callback.latency_counter += 1
             if pm_time == 0:
+                prediction_callback.ml_times.append(ml_time)
                 prediction_callback.times.append(ml_time)
             elif ml_time == 0:
                 prediction_callback.times.append(pm_time)
+                prediction_callback.pm_times.append(pm_time)
 
-        if prediction_callback.print:
-            print(f"last 100 time: {np.sum(prediction_callback.times[max(-101, -1*len(prediction_callback.times)):-1]):.2f}")
+            if prediction_callback.print:
+                print(f"last 100 time: {np.sum(prediction_callback.times[max(-101, -1*len(prediction_callback.times)):-1]):.2f}")
+
+        
 
             
 
@@ -371,8 +389,13 @@ def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
 
 # Function to calculate IoU between two boxes
 def calculate_iou(box1, box2):
-    x1, y1, x2, y2 = box1
-    x1_gt, y1_gt, x2_gt, y2_gt = box2
+    p1, p2 = box1
+    p1_gt, p2_gt = box2
+
+    x1, y1 = p1
+    x2, y2 = p2
+    x1_gt, y1_gt = p1_gt
+    x2_gt, y2_gt = p2_gt
 
     # Determine the coordinates of the intersection rectangle
     x_left = max(x1, x1_gt)
