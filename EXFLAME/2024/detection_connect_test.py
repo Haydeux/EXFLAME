@@ -19,7 +19,7 @@ import signal
 import sys
 
 
-yolo_frame = 5
+yolo_frame = 20
 
 
 
@@ -153,46 +153,46 @@ def prediction_callback(data):
             #rectangles = colour_detect(cv_image)
 
             # Get YOLO bounding boxes for comparison
-            gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            #gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
 
             # Patch match 
             prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
 
-            matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
+            #matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
 
             #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
 
-            iou_vals = [mp[-1] for mp in matches]
+            #iou_vals = [mp[-1] for mp in matches]
 
-            prediction_callback.iou_list += iou_vals
+            #prediction_callback.iou_list += iou_vals
 
             # Increase loop counter
             prediction_callback.loop_counter += 1
 
         
         
-        if prediction_callback.latency_counter < 0:
-            prediction_callback.latency_counter += 1
-        elif prediction_callback.latency_counter >= 1000:
-            if prediction_callback.print:
-                print(f"PM mean time: {np.mean(prediction_callback.pm_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.pm_times, dtype=np.float64):.4f}")
-                print(f"ML mean time: {np.mean(prediction_callback.ml_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.ml_times, dtype=np.float64):.4f}")
-                print(f"Total mean time: {np.mean(prediction_callback.times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.times, dtype=np.float64):.4f}")
-                print(f"Mean iou: {np.mean(prediction_callback.iou_list, dtype=np.float64):.3f}  |  std: {np.std(prediction_callback.iou_list, dtype=np.float64):.4f}")
-                #print(f"Average unmatched per frame: {(prediction_callback.no_match_count / (1000+20*(1+yolo_frame)) ):.3f}")
-                #print(f"{prediction_callback.times[:30]}")
-            prediction_callback.print = False
-        else:
-            prediction_callback.latency_counter += 1
-            if pm_time == 0:
-                prediction_callback.ml_times.append(ml_time)
-                prediction_callback.times.append(ml_time)
-            elif ml_time == 0:
-                prediction_callback.times.append(pm_time)
-                prediction_callback.pm_times.append(pm_time)
+        # if prediction_callback.latency_counter < 0:
+        #     prediction_callback.latency_counter += 1
+        # elif prediction_callback.latency_counter >= 2000:
+        #     if prediction_callback.print:
+        #         print(f"PM mean time: {np.mean(prediction_callback.pm_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.pm_times, dtype=np.float64):.4f}")
+        #         print(f"ML mean time: {np.mean(prediction_callback.ml_times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.ml_times, dtype=np.float64):.4f}")
+        #         print(f"Total mean time: {np.mean(prediction_callback.times, dtype=np.float64):.2f}  |  std: {np.std(prediction_callback.times, dtype=np.float64):.4f}")
+        #         print(f"Mean iou: {np.mean(prediction_callback.iou_list, dtype=np.float64):.3f}  |  std: {np.std(prediction_callback.iou_list, dtype=np.float64):.4f}")
+        #         #print(f"Average unmatched per frame: {(prediction_callback.no_match_count / (1000+20*(1+yolo_frame)) ):.3f}")
+        #         #print(f"{prediction_callback.times[:30]}")
+        #     prediction_callback.print = False
+        # else:
+        #     prediction_callback.latency_counter += 1
+        #     if pm_time == 0:
+        #         prediction_callback.ml_times.append(ml_time)
+        #         prediction_callback.times.append(ml_time)
+        #     elif ml_time == 0:
+        #         prediction_callback.times.append(pm_time)
+        #         prediction_callback.pm_times.append(pm_time)
 
-            if prediction_callback.print:
-                print(f"last 100 time: {np.sum(prediction_callback.times[max(-101, -1*len(prediction_callback.times)):-1]):.2f}")
+        #     if prediction_callback.print:
+        #         print(f"last 100 time: {np.sum(prediction_callback.times[max(-101, -1*len(prediction_callback.times)):-1]):.2f}")
 
         
 
@@ -263,6 +263,8 @@ def run_prediction(model, image):
         cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
     cv.imshow("YOLO", disp_copy)
     cv.waitKey(1)
+
+    print(regions)
 
     return regions, patches, elapse_time
 
