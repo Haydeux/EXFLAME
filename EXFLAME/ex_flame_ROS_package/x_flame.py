@@ -291,7 +291,7 @@ class ur_five:
         # Logic to record and display times, for just the servo baslers section
         if self.loops_u < 0:
             self.loops_u += 1
-        elif self.loops_u > 2000:
+        elif self.loops_u > 5000:
             if self.print_u:
                 # Upload times
                 mean_time = np.mean(self.upload_times, dtype=np.float64)
@@ -559,7 +559,7 @@ class ur_five:
         # Logic to record and display times, for just the servo baslers section
         if self.loops_c < 0:
             self.loops_c += 1
-        elif self.loops_c > 2000:
+        elif self.loops_c > 5000:
             if self.print_c:
                 mean_time = np.mean(self.conversion_times, dtype=np.float64)
                 std_time = np.std(self.conversion_times, dtype=np.float64)

@@ -226,7 +226,7 @@ def prediction_callback(data):
 
     if prediction_callback.loops < 0:
         prediction_callback.loops += 1
-    elif prediction_callback.loops > 2000:
+    elif prediction_callback.loops > 5000:
         #avg_time = np.average(prediction_callback.times)
         if prediction_callback.print:
             mean_time = np.mean(prediction_callback.times, dtype=np.float64)

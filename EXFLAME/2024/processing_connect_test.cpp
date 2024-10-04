@@ -105,9 +105,9 @@ class Baslers {
             bool print_stereo = true;
 
             std::vector<double> times_rect;
-            times_rect.reserve(2200); // Reserve space for approx 2000 entries (+200 just to be safe)
+            times_rect.reserve(5200); // Reserve space for approx 5000 entries (+200 just to be safe)
             std::vector<double> times_stereo;
-            times_stereo.reserve(2200); // Reserve space for approx 2000 entries (+200 just to be safe)
+            times_stereo.reserve(5200); // Reserve space for approx 5000 entries (+200 just to be safe)
 
             // Initialise the camera software
             PylonInitialize();
@@ -232,7 +232,7 @@ class Baslers {
 
                     if (loops_rect < 0) {
                         loops_rect += 1;
-                    } else if (loops_rect > 2000) {
+                    } else if (loops_rect > 5000) {
                         if (print_rect) {
                             // Calculate mean and standard deviation
                             double mean_r_time = calculateMean(times_rect);
@@ -347,7 +347,7 @@ class Baslers {
                     
                     if (loops_stereo < 0) {
                         loops_stereo += 1;
-                    } else if (loops_stereo > 2000) {
+                    } else if (loops_stereo > 5000) {
                         if (print_stereo) {
                             // Calculate mean and standard deviation
                             double mean_time_s = calculateMean(times_stereo);
