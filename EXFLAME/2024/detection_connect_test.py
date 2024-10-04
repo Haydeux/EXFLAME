@@ -20,7 +20,7 @@ import signal
 import sys
 
 
-yolo_frame = 0
+yolo_frame = 50
 
 
 def start_process(executable_file):
@@ -153,28 +153,28 @@ def prediction_callback(data):
         # ml_time = 0
         # pm_time = 0
 
-        prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+        #prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
 
-        # if prediction_callback.loop_counter >= yolo_frame:
-        #     # Run yolo prediction and reset loop counter
-        #     #prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
-        #     prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
-        #     prediction_callback.loop_counter = 0
-        # else:
-        #     # Patch match 
-        #     #prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
-        #     prediction_callback.rectangles, prediction_callback.patches = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+        if prediction_callback.loop_counter >= yolo_frame:
+            # Run yolo prediction and reset loop counter
+            #prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            prediction_callback.loop_counter = 0
+        else:
+            # Patch match 
+            #prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+            prediction_callback.rectangles, prediction_callback.patches = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
             
-        #     # Get YOLO bounding boxes for comparison
-        #     # gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+            # Get YOLO bounding boxes for comparison
+            # gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
 
-        #     #matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
-        #     #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
-        #     #iou_vals = [mp[-1] for mp in matches]
-        #     #prediction_callback.iou_list += iou_vals
+            #matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
+            #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
+            #iou_vals = [mp[-1] for mp in matches]
+            #prediction_callback.iou_list += iou_vals
 
-        #     # Increase loop counter
-        #     prediction_callback.loop_counter += 1
+            # Increase loop counter
+            prediction_callback.loop_counter += 1
 
         
         
