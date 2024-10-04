@@ -17,6 +17,7 @@ import rospy
 from geometry_msgs.msg import PoseArray
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import PointStamped
+from std_msgs.msg import Float64
 
 import rtdeState
 
@@ -166,8 +167,25 @@ class ur_five:
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0
 
-        self.avg_time = 0
-        self.n = -30
+        # For timing
+        self.total_mean_time_pub = rospy.Publisher('times/total/mean', Float64, queue_size=1)
+        self.total_std_time_pub = rospy.Publisher('times/total/std', Float64, queue_size=1)
+        self.upload_mean_time_pub = rospy.Publisher('times/upload/mean', Float64, queue_size=1)
+        self.upload_std_time_pub = rospy.Publisher('times/upload/std', Float64, queue_size=1)
+        self.conversion_mean_time_pub = rospy.Publisher('times/conversion/mean', Float64, queue_size=1)
+        self.conversion_std_time_pub = rospy.Publisher('times/conversion/std', Float64, queue_size=1)
+
+        self.total_times = []
+        self.upload_times = []
+        self.conversion_times = []
+
+        self.loops_t = -100
+        self.loops_u = -100
+        self.loops_c = -100
+
+        self.print_t = True
+        self.print_u = True
+        self.print_c = True
 
     # The function that continuously records the TCP pose of the UR5 when it is on
     def record_tcp(self) -> None:
@@ -200,6 +218,9 @@ class ur_five:
 
     # Uploads a pose to the registers used for communicating pose with the RTDE
     def upload_pose(self, position_stamped: PointStamped) -> None:
+        # Start timing
+        start_time = time.time()
+
         target = [0, 0, 0, 0, 0, 0]
 
         # Applying a translation to account for the desired TCP offset
@@ -257,14 +278,37 @@ class ur_five:
             self.target_time = time.time() + self.delay_time
 
         # Measure time
-        current_time = rospy.Time.now().to_time()
+        end_time = time.time()
         capture_time = position_stamped.header.stamp.to_time()
-        elapse_time = (current_time - capture_time) * 1000
+        total_elapse_time = (end_time - capture_time) * 1000
+        elapse_time = (end_time - start_time) * 1000 # measure in ms
 
-        self.n += 1
-        if self.n > 0:
-            self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
-            #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+        # self.n += 1
+        # if self.n > 0:
+        #     self.avg_time = (self.avg_time * (self.n - 1) + total_elapse_time) / self.n
+        #     #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+
+        # Logic to record and display times, for just the servo baslers section
+        if self.loops_u < 0:
+            self.loops_u += 1
+        elif self.loops_u > 2000:
+            if self.print_u:
+                # Upload times
+                mean_time = np.mean(self.upload_times, dtype=np.float64)
+                std_time = np.std(self.upload_times, dtype=np.float64)
+                self.upload_mean_time_pub.publish(mean_time)
+                self.upload_std_time_pub.publish(std_time)
+
+                # Total times
+                mean_t_time = np.mean(self.total_times, dtype=np.float64)
+                std_t_time = np.std(self.total_times, dtype=np.float64)
+                self.total_mean_time_pub.publish(mean_t_time)
+                self.total_std_time_pub.publish(std_t_time)
+            self.print_u = False
+        else:
+            self.total_times.append(total_elapse_time)
+            self.upload_times.append(elapse_time)
+            self.loops_u += 1
 
     # Uploads a pose to the registers used for communicating pose with the RTDE
     def clear_pose(self) -> None:
@@ -305,8 +349,6 @@ class ur_five:
 
         pub_point.header.stamp = position.header.stamp
 
-        self.position_pub.publish(pub_point)
-
         # Calculates the error of the current target and publishes it to the ros topic
         error = Point()
 
@@ -314,6 +356,8 @@ class ur_five:
         error.y = position.point.y - self.tcp_offset[1] - self.actual_tcp[1]
         error.z = position.point.z - self.tcp_offset[2] - self.actual_tcp[2]
 
+        # Publish ROS messages
+        self.position_pub.publish(pub_point)
         self.error_pub.publish(error)
 
     ### POSITION MANIPULATION ###
@@ -474,6 +518,9 @@ class ur_five:
 
     # Given a list of candidate targets relative to the baslers, determines the position of the closest target and the global coordinates
     def servo_baslers(self, targets: PoseArray) -> None:
+        # Start timing here
+        start_time = time.time()
+
         # Declaring the time when the image was captured
         image_time = float(targets.header.stamp.secs) + float(targets.header.stamp.nsecs) / (10 ** 9)
 
@@ -504,6 +551,24 @@ class ur_five:
 
         # Publish the closest position to the motion estimator
         self.publish_position(best_pose, image_time)
+
+        # End timing here
+        end_time = time.time()
+        elapse_time = (end_time - start_time) * 1000 # measure in ms
+
+        # Logic to record and display times, for just the servo baslers section
+        if self.loops_c < 0:
+            self.loops_c += 1
+        elif self.loops_c > 2000:
+            if self.print_c:
+                mean_time = np.mean(self.conversion_times, dtype=np.float64)
+                std_time = np.std(self.conversion_times, dtype=np.float64)
+                self.conversion_mean_time_pub.publish(mean_time)
+                self.conversion_std_time_pub.publish(std_time)
+            self.print_c = False
+        else:
+            self.conversion_times.append(elapse_time)
+            self.loops_c += 1
 
     # Returns the rotation value of the UR5 as a point
     def get_rotation(self) -> Point:
@@ -568,33 +633,33 @@ class motion_estimator:
     def predict_position(self, data: PointStamped):
         fruit_position = data.point
 
-        current_time = rospy.Time.now().to_time()
-        capture_time = data.header.stamp.to_time()
+        # current_time = rospy.Time.now().to_time()
+        # capture_time = data.header.stamp.to_time()
     
-        elapse_time = (current_time - capture_time) * 1000
+        # elapse_time = (current_time - capture_time) * 1000
 
-        self.n += 1
-        if self.n > 0:
-            if self.record_start is None:
-                self.record_start = capture_time
+        # self.n += 1
+        # if self.n > 0:
+        #     if self.record_start is None:
+        #         self.record_start = capture_time
 
-            if len(self.position_list) < 100:
-                pos_time = [round((capture_time - self.record_start)*1000,5), round(fruit_position.x*1000,2), round(fruit_position.y*1000,2), round(fruit_position.z*1000,2)]
-                self.position_list.append(pos_time)
-                print(f"recording... {len(self.position_list)}      ",end="\r")
-            elif not self.recorded:
-                with open("data.csv", "w", newline="") as file:
-                    writer = csv.writer(file)
-                    writer.writerows(self.position_list)
-                print("\nwritten to csv")
-                self.recorded = True
-            else:
-                print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
-                pass
+        #     if len(self.position_list) < 100:
+        #         pos_time = [round((capture_time - self.record_start)*1000,5), round(fruit_position.x*1000,2), round(fruit_position.y*1000,2), round(fruit_position.z*1000,2)]
+        #         self.position_list.append(pos_time)
+        #         print(f"recording... {len(self.position_list)}      ",end="\r")
+        #     elif not self.recorded:
+        #         with open("data.csv", "w", newline="") as file:
+        #             writer = csv.writer(file)
+        #             writer.writerows(self.position_list)
+        #         print("\nwritten to csv")
+        #         self.recorded = True
+        #     else:
+        #         print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+        #         pass
 
 
-            self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
-            #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
+        #     self.avg_time = (self.avg_time * (self.n - 1) + elapse_time) / self.n
+        #     #print(f"{elapse_time:.2f} ms    |    {self.avg_time:.2f} ms           ", end="\r")
         
         predicted_point = PointStamped()
         predicted_point.header.stamp = data.header.stamp

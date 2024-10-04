@@ -7,7 +7,7 @@ inc_ros= $(shell pkg-config roscpp --cflags --libs) $(shell pkg-config std_msgs 
 all: processing_connect_test
 
 processing_connect_test: processing_connect_test.cpp
-	$(CC) -O2 -o processing_connect_test processing_connect_test.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
+	$(CC) -O2 -o processing_connect_timing processing_connect_test.cpp -lm -lstdc++ -ltbb $(inc_opencv) $(inc_pylon) $(inc_ros)
 
 .PHONY: clean
 clean:

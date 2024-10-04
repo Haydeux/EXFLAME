@@ -11,6 +11,7 @@ import os
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Polygon, Point32
+from std_msgs.msg import Float64
 
 
 import subprocess
@@ -19,11 +20,7 @@ import signal
 import sys
 
 
-yolo_frame = 20
-
-
-
-
+yolo_frame = 0
 
 
 def start_process(executable_file):
@@ -72,10 +69,10 @@ tensorrt_model = YOLOv10(engine_path, task='detect')
 #tensorrt_model = YOLO("yoloV8_flowers.engine", task='detect')
 
 
-
 def main():
-    global polygons_pub
-    process_path = os.path.join(cur_dir, 'processing_connect') #_test')
+    global polygons_pub, mean_time_pub, std_time_pub
+    #process_path = os.path.join(cur_dir, 'processing_connect') #_test')
+    process_path = os.path.join(cur_dir, 'processing_connect_timing')
 
     print("warming up")
     warm_up_image_path = os.path.join(cur_dir, 'warm_up.png')
@@ -90,6 +87,9 @@ def main():
     image_sub = rospy.Subscriber("xflame/baslers_image", Image, prediction_callback, queue_size=1)
     polygons_pub = rospy.Publisher('xflame/bounding_boxes', Polygon, queue_size=1)
 
+    mean_time_pub = rospy.Publisher('times/detection/mean', Float64, queue_size=1)
+    std_time_pub = rospy.Publisher('times/detection/std', Float64, queue_size=1)
+
     print("begin subprocess")
     process = start_process(process_path)
 
@@ -102,28 +102,37 @@ def main():
     print("closing")
     stop_process(process)
     image_sub.unregister()
+    polygons_pub.unregister()
     #cv.destroyAllWindows()
     print("Program ended")
 
 
 def prediction_callback(data):
-    if not hasattr(prediction_callback, "latency_counter"):
-        prediction_callback.latency_counter = -20 * (yolo_frame+1)
-        prediction_callback.latency_avg = 0
-        prediction_callback.ml_times = []
-        prediction_callback.pm_times = []
-        prediction_callback.times = []
-        prediction_callback.print = True
+    # if not hasattr(prediction_callback, "latency_counter"):
+    #     prediction_callback.latency_counter = -20 * (yolo_frame+1)
+    #     prediction_callback.latency_avg = 0
+    #     prediction_callback.ml_times = []
+    #     prediction_callback.pm_times = []
+    #     prediction_callback.times = []
+    #     prediction_callback.print = True
 
-        prediction_callback.no_match_count = 0
-        prediction_callback.iou_list = []
+    #     prediction_callback.no_match_count = 0
+    #     prediction_callback.iou_list = []
 
     if not hasattr(prediction_callback, "loop_counter"):
         prediction_callback.loop_counter = yolo_frame
         prediction_callback.rectangles = None
         prediction_callback.patches = None
 
-    global polygons_pub
+    if not hasattr(prediction_callback, 'times'):
+        prediction_callback.times = []
+        prediction_callback.loops = -100
+        prediction_callback.print = True
+
+    global polygons_pub, mean_time_pub, std_time_pub
+
+    start_time = time.time()
+
     bridge = CvBridge()
     try:
         # Convert the ROS Image message to a OpenCV image
@@ -141,33 +150,31 @@ def prediction_callback(data):
         # cv.waitKey(1)
 
         
-        ml_time = 0
-        pm_time = 0
+        # ml_time = 0
+        # pm_time = 0
 
-        if prediction_callback.loop_counter >= yolo_frame:
-            # Run yolo prediction and reset loop counter
-            prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
-            prediction_callback.loop_counter = 0
-        else:
-            # Colour match 
-            #rectangles = colour_detect(cv_image)
+        prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
 
-            # Get YOLO bounding boxes for comparison
-            #gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+        # if prediction_callback.loop_counter >= yolo_frame:
+        #     # Run yolo prediction and reset loop counter
+        #     #prediction_callback.rectangles, prediction_callback.patches, ml_time = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+        #     prediction_callback.rectangles, prediction_callback.patches = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
+        #     prediction_callback.loop_counter = 0
+        # else:
+        #     # Patch match 
+        #     #prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+        #     prediction_callback.rectangles, prediction_callback.patches = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+            
+        #     # Get YOLO bounding boxes for comparison
+        #     # gt_rects, _notneeded1, _notneeded2 = run_prediction(tensorrt_model, cv_image) # run_prediction(tensorrt_model, warm_up_image)
 
-            # Patch match 
-            prediction_callback.rectangles, prediction_callback.patches, pm_time = patch_match(cv_image, prediction_callback.patches, prediction_callback.rectangles)
+        #     #matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
+        #     #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
+        #     #iou_vals = [mp[-1] for mp in matches]
+        #     #prediction_callback.iou_list += iou_vals
 
-            #matches, non_match_patch, non_match_ml = compare_boxes(gt_rects, prediction_callback.rectangles, 0.4)
-
-            #prediction_callback.no_match_count += len(non_match_patch) + len(non_match_ml)
-
-            #iou_vals = [mp[-1] for mp in matches]
-
-            #prediction_callback.iou_list += iou_vals
-
-            # Increase loop counter
-            prediction_callback.loop_counter += 1
+        #     # Increase loop counter
+        #     prediction_callback.loop_counter += 1
 
         
         
@@ -205,7 +212,7 @@ def prediction_callback(data):
                 point = Point32(x=corner[0], y=corner[1], z=0.0)
                 polygon_msg.points.append(point)
 
-        #print("sending rects")
+        # print("sending rects")
         polygons_pub.publish(polygon_msg)
 
 
@@ -213,13 +220,38 @@ def prediction_callback(data):
         rospy.logerr("CvBridge Error: {0}".format(e))
         print("error decoding image")
     
+    end_time = time.time()
+    elapse_time = (end_time - start_time) * 1000 # ms
+    #avg_time = 0
+
+    if prediction_callback.loops < 0:
+        prediction_callback.loops += 1
+    elif prediction_callback.loops > 2000:
+        #avg_time = np.average(prediction_callback.times)
+        if prediction_callback.print:
+            mean_time = np.mean(prediction_callback.times, dtype=np.float64)
+            std_time = np.std(prediction_callback.times, dtype=np.float64)
+            mean_time_pub.publish(mean_time)
+            std_time_pub.publish(std_time)
+        prediction_callback.print = False
+    else:
+        prediction_callback.times.append(elapse_time)
+        prediction_callback.loops += 1
+        #avg_time = np.average(prediction_callback.times)  
+
+    # if prediction_callback.print:
+    #     print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
+
 
 
 def run_prediction(model, image):
-    if not hasattr(run_prediction, "avg_time"):
-        run_prediction.avg_time = 0
-        run_prediction.loops = -100
-    start_time = time.time()
+    # if not hasattr(run_prediction, "loops"):
+    #     run_prediction.times = []
+    #     run_prediction.loops = -100
+    #     run_prediction.print = True
+
+    #start_time = time.time()
+
     results = model.predict(image, imgsz=(480,640), conf=0.4, iou=0.8, half=True, verbose=False)
     results = results[0] 
     regions = []
@@ -239,88 +271,56 @@ def run_prediction(model, image):
         regions.append(((x1,y1),(x2,y2)))
     # cv.imshow("Image", image)
     # cv.waitKey(1)
-    end_time = time.time()
-    elapse_time = (end_time - start_time) * 1000 # ms
-    avg_time = 0
+
+    #end_time = time.time()
+    #elapse_time = (end_time - start_time) * 1000 # ms
+    #avg_time = 0
 
     # if run_prediction.loops < 0:
     #     run_prediction.loops += 1
-    # elif run_prediction.loops > 500:
-    #     avg_time = run_prediction.avg_time / run_prediction.loops
+    # elif run_prediction.loops > 2000:
+    #     avg_time = np.average(run_prediction.times)
+    #     if run_prediction.print:
+    #         print(f"mean time: {np.mean(run_prediction.times, dtype=np.float64):.3f}  |  std: {np.std(run_prediction.times, dtype=np.float64):.4f}")
+    #     run_prediction.print = False
     # else:
-    #     run_prediction.avg_time += elapse_time
+    #     run_prediction.times.append(elapse_time)
     #     run_prediction.loops += 1
-    #     avg_time = run_prediction.avg_time / run_prediction.loops
+    #     avg_time = np.average(run_prediction.times)  
 
-
-    #print(f"Yolo time: {elapse_time:.2f}  |  {avg_time:.2f}")
+    # if run_prediction.print:
+    #     print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
 
 
 
     # Optionally draw rectangles on the image for visualization
-    disp_copy = image.copy()
-    for reg in regions:
-        cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
-    cv.imshow("YOLO", disp_copy)
-    cv.waitKey(1)
+    # disp_copy = image.copy()
+    # for reg in regions:
+    #     cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
+    # cv.imshow("YOLOv8", disp_copy)
+    # cv.waitKey(1)
 
-    print(regions)
+    # print(regions)
 
-    return regions, patches, elapse_time
+    return regions, patches #, elapse_time
 
 
-
-# Detect flowers based on colour
-def colour_detect(image):
-    # Convert the image to HSV color space
-    hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-
-    # Define the range for detecting white in HSV
-    lower_white = np.array([0, 0, 200])
-    upper_white = np.array([180, 30, 255])
-
-    # Create a mask for white regions
-    mask = cv.inRange(hsv, lower_white, upper_white)
-
-    # Find contours in the masked image
-    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
-    regions = []
-    for contour in contours:
-        # Get the bounding box for each contour
-        x, y, w, h = cv.boundingRect(contour)
-        x1, y1 = x, y
-        x2, y2 = x + w, y + h
-        regions.append(((x1, y1), (x2, y2)))
-
-    # Optionally draw rectangles on the image for visualization
-    for region in regions:
-        cv.rectangle(image, region[0], region[1], (255, 0, 255), 3)
-    cv.imshow("Image", image)
-    cv.waitKey(1)
-
-    return regions
-    
 
 # Match the image patch (from a previous frame) to its most similar location
 def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
-    if not hasattr(patch_match, "avg_time"):
-        patch_match.avg_time = []
-        patch_match.loops = -100
-        patch_match.print = True
+    # if not hasattr(patch_match, "loops"):
+    #     patch_match.times = []
+    #     patch_match.loops = -100
+    #     patch_match.print = True
 
-    start_time = time.time()
+    # start_time = time.time()
     updated_patches = []
     updated_rectangles = []
 
     image_small = cv.resize(image, None, fx=scale, fy=scale, interpolation=cv.INTER_LINEAR)
 
+    
     for ind, patch in enumerate(patches):
-        best_match = None
-        best_score = -1
-        best_rect = None
-        best_patch = None
-
         patch = cv.resize(patch, None, fx=scale, fy=scale, interpolation=cv.INTER_LINEAR)
 
         # Define the search window around the original rectangle
@@ -340,115 +340,109 @@ def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
         # Get the best match position for this scale
         _, max_val, _, max_loc = cv.minMaxLoc(result)
 
-        if max_val > best_score:
-            best_score = max_val
-            best_match = max_loc
-            best_patch = cv.resize(patch, None, fx=1/scale, fy=1/scale, interpolation=cv.INTER_LINEAR)
-            # Calculate the new rectangle coordinates
-            patch_h, patch_w = patch.shape[:2]
-            new_x1 = int((search_x1 + best_match[0]) / scale)
-            new_y1 = int((search_y1 + best_match[1]) / scale)
-            new_x2 = int((search_x1 + best_match[0] + patch_w) / scale)
-            new_y2 = int((search_y1 + best_match[1] + patch_h) / scale)
-            best_rect = ((new_x1, new_y1), (new_x2, new_y2))
+        best_patch = cv.resize(patch, None, fx=1/scale, fy=1/scale, interpolation=cv.INTER_LINEAR)
+        # Calculate the new rectangle coordinates
+        patch_h, patch_w = patch.shape[:2]
+        new_x1 = int((search_x1 + max_loc[0]) / scale)
+        new_y1 = int((search_y1 + max_loc[1]) / scale)
+        new_x2 = int((search_x1 + max_loc[0] + patch_w) / scale)
+        new_y2 = int((search_y1 + max_loc[1] + patch_h) / scale)
+        best_rect = ((new_x1, new_y1), (new_x2, new_y2))
 
         # Append the updated patch and rectangle
         updated_patches.append(best_patch)
         updated_rectangles.append(best_rect)
     
-    end_time = time.time()
-    elapse_time = (end_time - start_time) * 1000 # ms
-    avg_time = 0
+    # end_time = time.time()
+    # elapse_time = (end_time - start_time) * 1000 # ms
+    # avg_time = 0
 
     # if patch_match.loops < 0:
     #     patch_match.loops += 1
-    # elif patch_match.loops > 1000:
-    #     avg_time = np.average(patch_match.avg_time)
+    # elif patch_match.loops > 2000:
+    #     avg_time = np.average(patch_match.times)
     #     if patch_match.print:
-    #         print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
-    #         print(f"Min: {np.min(patch_match.avg_time):.2f}  |  Max: {np.max(patch_match.avg_time):.2f}")
-
-    #         print(len(patch_match.avg_time[-101:-1]))
+    #         print(f"mean time: {np.mean(patch_match.times, dtype=np.float64):.3f}  |  std: {np.std(patch_match.times, dtype=np.float64):.4f}")
     #     patch_match.print = False
     # else:
-    #     patch_match.avg_time.append(elapse_time)
+    #     patch_match.times.append(elapse_time)
     #     patch_match.loops += 1
-    #     avg_time = np.average(patch_match.avg_time)  #/ patch_match.loops
+    #     avg_time = np.average(patch_match.times)  
 
     # if patch_match.print:
     #     print(f"Match time: {elapse_time:.2f}  |  {avg_time:.2f}")
 
 
     # Optionally draw rectangles on the image for visualization
-    disp_copy = image.copy()
-    for region in updated_rectangles:
-        cv.rectangle(disp_copy, region[0], region[1], (255, 0, 255), 3)
-    cv.imshow("Patch Match", disp_copy)
-    cv.waitKey(1)
+    # disp_copy = image.copy()
+    # for region in updated_rectangles:
+    #     cv.rectangle(disp_copy, region[0], region[1], (255, 0, 255), 3)
+    # cv.imshow("Patch Match", disp_copy)
+    # cv.waitKey(1)
 
-    return updated_rectangles, updated_patches, elapse_time
+    return updated_rectangles, updated_patches #, elapse_time
 
 
-# Function to calculate IoU between two boxes
-def calculate_iou(box1, box2):
-    p1, p2 = box1
-    p1_gt, p2_gt = box2
+# # Function to calculate IoU between two boxes
+# def calculate_iou(box1, box2):
+#     p1, p2 = box1
+#     p1_gt, p2_gt = box2
 
-    x1, y1 = p1
-    x2, y2 = p2
-    x1_gt, y1_gt = p1_gt
-    x2_gt, y2_gt = p2_gt
+#     x1, y1 = p1
+#     x2, y2 = p2
+#     x1_gt, y1_gt = p1_gt
+#     x2_gt, y2_gt = p2_gt
 
-    # Determine the coordinates of the intersection rectangle
-    x_left = max(x1, x1_gt)
-    y_top = max(y1, y1_gt)
-    x_right = min(x2, x2_gt)
-    y_bottom = min(y2, y2_gt)
+#     # Determine the coordinates of the intersection rectangle
+#     x_left = max(x1, x1_gt)
+#     y_top = max(y1, y1_gt)
+#     x_right = min(x2, x2_gt)
+#     y_bottom = min(y2, y2_gt)
 
-    if x_right < x_left or y_bottom < y_top:
-        return 0.0  # No overlap
+#     if x_right < x_left or y_bottom < y_top:
+#         return 0.0  # No overlap
 
-    # Area of the intersection rectangle
-    intersection_area = (x_right - x_left) * (y_bottom - y_top)
+#     # Area of the intersection rectangle
+#     intersection_area = (x_right - x_left) * (y_bottom - y_top)
 
-    # Areas of the bounding boxes
-    box1_area = (x2 - x1) * (y2 - y1)
-    box2_area = (x2_gt - x1_gt) * (y2_gt - y1_gt)
+#     # Areas of the bounding boxes
+#     box1_area = (x2 - x1) * (y2 - y1)
+#     box2_area = (x2_gt - x1_gt) * (y2_gt - y1_gt)
 
-    # Area of the union
-    union_area = box1_area + box2_area - intersection_area
+#     # Area of the union
+#     union_area = box1_area + box2_area - intersection_area
 
-    # IoU is intersection area over union area
-    return intersection_area / union_area
+#     # IoU is intersection area over union area
+#     return intersection_area / union_area
 
-# Function to compare two lists of boxes
-def compare_boxes(ml_boxes, template_boxes, iou_threshold=0.5):
-    matched_pairs = []
-    unmatched_ml_boxes = []
-    unmatched_template_boxes = []
+# # Function to compare two lists of boxes
+# def compare_boxes(ml_boxes, template_boxes, iou_threshold=0.5):
+#     matched_pairs = []
+#     unmatched_ml_boxes = []
+#     unmatched_template_boxes = []
 
-    # Create IoU matrix between ML boxes and template boxes
-    iou_matrix = np.zeros((len(template_boxes), len(ml_boxes)))
+#     # Create IoU matrix between ML boxes and template boxes
+#     iou_matrix = np.zeros((len(template_boxes), len(ml_boxes)))
 
-    for i, t_box in enumerate(template_boxes):
-        for j, ml_box in enumerate(ml_boxes):
-            iou_matrix[i, j] = calculate_iou(t_box, ml_box)
+#     for i, t_box in enumerate(template_boxes):
+#         for j, ml_box in enumerate(ml_boxes):
+#             iou_matrix[i, j] = calculate_iou(t_box, ml_box)
 
-    # For each template box, find the ML box with the highest IoU
-    for i, t_box in enumerate(template_boxes):
-        best_ml_idx = np.argmax(iou_matrix[i])
-        best_iou = iou_matrix[i, best_ml_idx]
+#     # For each template box, find the ML box with the highest IoU
+#     for i, t_box in enumerate(template_boxes):
+#         best_ml_idx = np.argmax(iou_matrix[i])
+#         best_iou = iou_matrix[i, best_ml_idx]
 
-        if best_iou >= iou_threshold:
-            matched_pairs.append((t_box, ml_boxes[best_ml_idx], best_iou))
-        else:
-            unmatched_template_boxes.append(t_box)
+#         if best_iou >= iou_threshold:
+#             matched_pairs.append((t_box, ml_boxes[best_ml_idx], best_iou))
+#         else:
+#             unmatched_template_boxes.append(t_box)
 
-    # Find unmatched ML boxes
-    matched_ml_indices = {pair[1] for pair in matched_pairs}
-    unmatched_ml_boxes = [box for box in ml_boxes if box not in matched_ml_indices]
+#     # Find unmatched ML boxes
+#     matched_ml_indices = {pair[1] for pair in matched_pairs}
+#     unmatched_ml_boxes = [box for box in ml_boxes if box not in matched_ml_indices]
 
-    return matched_pairs, unmatched_template_boxes, unmatched_ml_boxes
+#     return matched_pairs, unmatched_template_boxes, unmatched_ml_boxes
 
 
 

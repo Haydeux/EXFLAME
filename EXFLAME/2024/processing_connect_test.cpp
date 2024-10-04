@@ -6,7 +6,7 @@
  *              in mm relative to the camera through a ROS message.  
  * */
 
-#define DISPLAY_IMAGES 1    // Set 1 to see the images, set 0 for no images
+#define DISPLAY_IMAGES 0    // Set 1 to see the images, set 0 for no images
                             // Runs about 110 Hz with images, about 265 Hz with no images
 
 // 265 Hz with no image display, about 110 Hz when displaying
@@ -39,6 +39,12 @@
 #include <geometry_msgs/Polygon.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/Pose.h>
+#include <std_msgs/Float64.h>
+
+// Libraries for timing purposes
+#include <numeric> // For std::accumulate
+#include <cmath>   // For std::sqrt
+#include <vector>
 
 // Namespaces for opencv (cv) and pylon cameras (Pylon)
 using namespace cv;
@@ -80,16 +86,28 @@ class Baslers {
             // Initialise the ros node, message publisher, and message container
             int argc = 0; // Placeholder to pass to the ros init() method
             ros::init(argc, nullptr, "image_processor");
-
-            ros::NodeHandle kiwi_n;
-            ros::Publisher pose_array_pub = kiwi_n.advertise<geometry_msgs::PoseArray>("xflame/baslers_positions", 1);
+            ros::NodeHandle n;
             
-            ros::NodeHandle image_n;
-            ros::Publisher image_pub = image_n.advertise<sensor_msgs::Image>("xflame/baslers_image", 1, false);
+            // For broadcasting the flower positions
+            ros::Publisher pose_array_pub = n.advertise<geometry_msgs::PoseArray>("xflame/baslers_positions", 1);
 
-            ros::NodeHandle rect_n;
-            ros::Subscriber rect_sub = rect_n.subscribe("xflame/bounding_boxes", 1, &Baslers::polygonCallback, this);
+            // For communication with the machine learning detection python program
+            ros::Publisher image_pub = n.advertise<sensor_msgs::Image>("xflame/baslers_image", 1, false);
+            ros::Subscriber rect_sub = n.subscribe("xflame/bounding_boxes", 1, &Baslers::polygonCallback, this);
 
+            // For broadcasting the times 
+            ros::Publisher rect_mean_pub = n.advertise<std_msgs::Float64>("times/rectify/mean", 1);
+            ros::Publisher rect_std_pub = n.advertise<std_msgs::Float64>("times/rectify/std", 1);
+            ros::Publisher stereo_mean_pub = n.advertise<std_msgs::Float64>("times/stereo/mean", 1);
+            ros::Publisher stereo_std_pub = n.advertise<std_msgs::Float64>("times/stereo/std", 1);
+
+            bool print_rect = true;
+            bool print_stereo = true;
+
+            std::vector<double> times_rect;
+            times_rect.reserve(2200); // Reserve space for approx 2000 entries (+200 just to be safe)
+            std::vector<double> times_stereo;
+            times_stereo.reserve(2200); // Reserve space for approx 2000 entries (+200 just to be safe)
 
             // Initialise the camera software
             PylonInitialize();
@@ -163,13 +181,13 @@ class Baslers {
                 camera_right.StartGrabbing(GrabStrategy_LatestImageOnly);
 
                 // Continue running as long as the cameras are still grabbing, ros is still running, and a stop command has not been recieved
-                unsigned long loops = 0; // For timing ###########################################
+                signed long loops_rect = -100; // For timing ###########################################
+                signed long loops_stereo = -100; // For timing ###########################################
                 int key = 0;
                 while (camera_left.IsGrabbing() && camera_right.IsGrabbing() && key != 27 && *m_alive && ros::ok()) {
 
                     // For timing ######################################################################
-                    loops++;
-                    auto start = std::chrono::high_resolution_clock::now();
+                    auto start_rect = std::chrono::high_resolution_clock::now();
 
                     // Record the time that the images were captured at, to be sent in the ros message
                     geometry_msgs::PoseArray pose_array;
@@ -200,6 +218,43 @@ class Baslers {
                     remap_color(color_left_image, rectified_left, map_left);
                     remap_color(color_right_image, rectified_right, map_right);
 
+
+
+                    // ros send to machine learning python program
+                    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", rectified_left).toImageMsg();
+                    image_msg->header.stamp = ros::Time::now();
+                    image_pub.publish(image_msg);
+
+
+                    // Calculate elapsed time ######################################################################################
+                    auto end_rect = std::chrono::high_resolution_clock::now();
+                    auto elapse_rect = std::chrono::duration_cast<std::chrono::milliseconds>(end_rect - start_rect);
+
+                    if (loops_rect < 0) {
+                        loops_rect += 1;
+                    } else if (loops_rect > 2000) {
+                        if (print_rect) {
+                            // Calculate mean and standard deviation
+                            double mean_r_time = calculateMean(times_rect);
+                            double std_r_time = calculateStdDev(times_rect);
+
+                            // Publish mean and standard deviation
+                            std_msgs::Float64 mean_msg_r;
+                            mean_msg_r.data = mean_r_time;
+
+                            std_msgs::Float64 std_msg_r;
+                            std_msg_r.data = std_r_time;
+
+                            rect_mean_pub.publish(mean_msg_r);
+                            rect_std_pub.publish(std_msg_r);
+                        }
+                        print_rect = false;
+                    } else {
+                        // Add the elapsed time to the list and increment loop counter
+                        times_rect.push_back(static_cast<double>(elapse_rect.count()));
+                        loops_rect += 1;
+                    }
+
 #if DISPLAY_IMAGES == 1
                     // Display stuff -- image copy for displaying on
                     rectified_left.copyTo(rect_l_copy);
@@ -207,16 +262,14 @@ class Baslers {
                     line(rect_l_copy, Point(320, 0), Point(320, 479), Scalar(0,0,255), 1); // Vertical line
                     line(rect_l_copy, Point(0, 240), Point(639, 240), Scalar(0,0,255), 1); // Horizontal line
 #endif
-                    
-                    //ros send
-                    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", rectified_left).toImageMsg();
-                    image_msg->header.stamp = ros::Time::now();
-                    image_pub.publish(image_msg);
-
+                    // Wait until the detected flowers are returned back
                     while (ros::ok() && !recieved_rectangles) {
                         ros::spinOnce();
                     }
                     recieved_rectangles = false;
+
+                    // For timing ######################################################################
+                    auto start_stereo = std::chrono::high_resolution_clock::now();
 
                     // Sort through all the found contours
                     for (const auto& rectang : rectangles_list) {
@@ -288,10 +341,34 @@ class Baslers {
                     // Publish the PoseArray message
                     pose_array_pub.publish(pose_array);
 
-                    // Calculate loop time taken ######################################################################################
-                    auto end = std::chrono::high_resolution_clock::now();
-                    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-                    total_duration += duration;
+                    // Calculate elapsed time ######################################################################################
+                    auto end_stereo = std::chrono::high_resolution_clock::now();
+                    auto elapse_stereo = std::chrono::duration_cast<std::chrono::milliseconds>(end_stereo - start_stereo);
+                    
+                    if (loops_stereo < 0) {
+                        loops_stereo += 1;
+                    } else if (loops_stereo > 2000) {
+                        if (print_stereo) {
+                            // Calculate mean and standard deviation
+                            double mean_time_s = calculateMean(times_stereo);
+                            double std_time_s = calculateStdDev(times_stereo);
+
+                            // Publish mean and standard deviation
+                            std_msgs::Float64 mean_msg_s;
+                            mean_msg_s.data = mean_time_s;
+
+                            std_msgs::Float64 std_msg_s;
+                            std_msg_s.data = std_time_s;
+
+                            stereo_mean_pub.publish(mean_msg_s);
+                            stereo_std_pub.publish(std_msg_s);
+                        }
+                        print_stereo = false;
+                    } else {
+                        // Add the elapsed time to the list and increment loop counter
+                        times_stereo.push_back(static_cast<double>(elapse_stereo.count()));
+                        loops_stereo += 1;
+                    }
                     
 #if DISPLAY_IMAGES == 1
                     // Display stuff **********************************************************************************************
@@ -303,7 +380,8 @@ class Baslers {
                 }
                 
                 // Print the average time taken by the loop  ###################################################################################
-                auto average_duration = total_duration / loops;
+                // auto average_duration = total_duration / loops;
+
 #if DISPLAY_IMAGES == 1
                 std::cout << std::endl << "Average time: " << average_duration.count() << " us" << std::endl;
 #endif
@@ -508,6 +586,22 @@ class Baslers {
             rectangles_list = rectangles;
             recieved_rectangles = true;
             //std::cout << "rects processed" << std::endl;
+        }
+
+        // Function to calculate the mean
+        double calculateMean(const std::vector<double>& times) {
+            double sum = std::accumulate(times.begin(), times.end(), 0.0);
+            return sum / times.size();
+        }
+
+        // Function to calculate the standard deviation
+        double calculateStdDev(const std::vector<double>& times) {
+            double mean = calculateMean(times);
+            double sq_sum = std::accumulate(times.begin(), times.end(), 0.0, 
+                                            [mean](double acc, double time) {
+                                                return acc + (time - mean) * (time - mean);
+                                            });
+            return std::sqrt(sq_sum / times.size());
         }
 
         
