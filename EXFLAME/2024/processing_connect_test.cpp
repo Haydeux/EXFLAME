@@ -338,6 +338,18 @@ class Baslers {
                         pose_array.poses.push_back(pose);
                     }
 
+                    if (rectangles_list.size() == 0) {
+                        geometry_msgs::Pose pose;
+                        pose.position.x = 0.148;
+                        pose.position.y = 0.012;
+                        pose.position.z = 0.405;
+                        pose.orientation.x = 0.0;
+                        pose.orientation.y = 0.0;
+                        pose.orientation.z = 0.0;
+                        pose.orientation.w = 1.0;
+                        pose_array.poses.push_back(pose);
+                    }
+
                     // Publish the PoseArray message
                     pose_array_pub.publish(pose_array);
 

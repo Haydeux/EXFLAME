@@ -23,5 +23,6 @@ try:
 except:
     print("stopped")
 finally:
+    print("low")
     GPIO.output(led_pin, GPIO.LOW)
     GPIO.cleanup()  # Clean up GPIO on exit

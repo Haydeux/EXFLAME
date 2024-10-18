@@ -203,7 +203,6 @@ def prediction_callback(data):
 
         
 
-            
 
         polygon_msg = Polygon()
 
@@ -211,6 +210,8 @@ def prediction_callback(data):
             for corner in rect:
                 point = Point32(x=corner[0], y=corner[1], z=0.0)
                 polygon_msg.points.append(point)
+
+        #print(f"message: \n {polygon_msg}")
 
         # print("sending rects")
         polygons_pub.publish(polygon_msg)
@@ -294,11 +295,11 @@ def run_prediction(model, image):
 
 
     # Optionally draw rectangles on the image for visualization
-    # disp_copy = image.copy()
-    # for reg in regions:
-    #     cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
-    # cv.imshow("YOLOv8", disp_copy)
-    # cv.waitKey(1)
+    disp_copy = image.copy()
+    for reg in regions:
+        cv.rectangle(disp_copy, reg[0], reg[1], (255, 0, 255), 3)
+    cv.imshow("YOLOv10 Opt", disp_copy)
+    cv.waitKey(1)
 
     # print(regions)
 
@@ -374,11 +375,11 @@ def patch_match(image, patches, rects, search_window_size=10, scale=0.25):
 
 
     # Optionally draw rectangles on the image for visualization
-    # disp_copy = image.copy()
-    # for region in updated_rectangles:
-    #     cv.rectangle(disp_copy, region[0], region[1], (255, 0, 255), 3)
-    # cv.imshow("Patch Match", disp_copy)
-    # cv.waitKey(1)
+    disp_copy = image.copy()
+    for region in updated_rectangles:
+        cv.rectangle(disp_copy, region[0], region[1], (255, 0, 255), 3)
+    cv.imshow("Patch Match", disp_copy)
+    cv.waitKey(1)
 
     return updated_rectangles, updated_patches #, elapse_time
 

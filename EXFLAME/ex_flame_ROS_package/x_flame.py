@@ -23,6 +23,8 @@ import rtdeState
 
 import csv
 
+import random
+
 
 # Defines the interface to launch the baslers C++ program
 class baslers:
@@ -153,7 +155,7 @@ class ur_five:
 
         # The offset of the camera and the TCP
         self.realsense_offset = [-0.215, 0.0, -0.055]
-        self.baslers_offset = [0.055, 0.0175, 0.0425]
+        self.baslers_offset = [0.067, 0.0175, 0.0425]
         self.baslers_rotation = [[ 0, -1,  0],
                                  [-1,  0,  0],
                                  [ 0,  0,  1]]
@@ -162,7 +164,7 @@ class ur_five:
         if fruit:
             self.tcp_offset = [0, 0, 0.230]
         else:
-            self.tcp_offset = [0.0325, 0.00, 0.400] #[0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
+            self.tcp_offset = [0.0325, 0.00, 0.350] #[0.035, 0.00, 0.400] #[0.06, 0.02, 0.400]
 
         # Defining a variable to track the state according to the UR5 or the computer
         self.pick_state = 0
@@ -628,6 +630,23 @@ class motion_estimator:
         self.record_start = None
         self.recorded = False
 
+        self.last_move = time.time()
+        self.wait_time = -1
+
+        self.targ_x = -1
+        self.targ_y = -1
+        self.targ_z = 0.85
+
+        self.options = [[0.295, 0.403], [0.394, 0.202]]# x: 0.2950787079890232
+        # y: 0.40329630659396787
+        # z: 0.8793573860203547
+
+        self.num = 0
+
+        # x: 0.39358840607362866
+        # y: 0.20203002552276275
+        # z: 0.836350889356388
+
  
     # Callback for recieving fruit positions
     def predict_position(self, data: PointStamped):
@@ -666,6 +685,35 @@ class motion_estimator:
         predicted_point.point.x = fruit_position.x 
         predicted_point.point.y = fruit_position.y 
         predicted_point.point.z = fruit_position.z 
+
+
+        if time.time() - self.last_move >= 10:
+            if self.wait_time == -1:
+                self.num += 1
+                if self.num > 1:
+                    self.num = 0
+                self.targ_x = self.options[self.num][0]
+                self.targ_y = self.options[self.num][1]
+                self.targ_z = 0.85  
+                
+                self.wait_time = time.time()
+            else:
+                if time.time() - self.wait_time >= 1.5:
+                    self.wait_time = -1
+                    self.last_move = time.time()
+            predicted_point.point.x = self.targ_x 
+            predicted_point.point.y = self.targ_y 
+            predicted_point.point.z = self.targ_z 
+
+        # x: 0.2950787079890232
+        # y: 0.40329630659396787
+        # z: 0.8793573860203547
+
+        # x: 0.39358840607362866
+        # y: 0.20203002552276275
+        # z: 0.836350889356388
+
+        # print(predicted_point.point)
 
         self.point_pub.publish(predicted_point)
 
